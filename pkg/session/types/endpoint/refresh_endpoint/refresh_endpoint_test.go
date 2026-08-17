@@ -11,24 +11,6 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader/body_setting"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/cors_configurator"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/numeric_date"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	loginTesting "github.com/altshiftab/authentication_go/pkg/session/testing"
@@ -37,12 +19,30 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/refresh_endpoint/refresh_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader/body_setting"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/cors_configurator"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 var defaultAuthenticationParser request_parser.RequestParser[any]
 
 var db *sql.DB
-var method motmedelCryptoInterfaces.Method
+var method altshiftCryptoInterfaces.Method
 var sessionManager *session_manager.Manager
 
 func TestMain(m *testing.M) {
@@ -444,7 +444,7 @@ func TestInitialize(t *testing.T) {
 
 			testEndpoint := New()
 			err := testEndpoint.Initialize(testCase.authenticationParser, testCase.corsConfigurator, testCase.sessionManager)
-			motmedelTestingCmp.CompareErr(t, err, testCase.wantErr)
+			altshiftTestingCmp.CompareErr(t, err, testCase.wantErr)
 		})
 	}
 }
@@ -452,12 +452,12 @@ func TestInitialize(t *testing.T) {
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	opts := []motmedelTestingCmp.Option{
-		motmedelTestingCmp.IgnoreFields(
+	opts := []altshiftTestingCmp.Option{
+		altshiftTestingCmp.IgnoreFields(
 			Endpoint{},
 			"selectRefreshAuthentication",
 		),
-		motmedelTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
+		altshiftTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
 	}
 
 	type args struct {
@@ -502,7 +502,7 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := New(tt.args.options...)
-			if diff := motmedelTestingCmp.Diff(tt.want, got, opts...); diff != "" {
+			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
 			}
 		})

@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
 	magicLinkTesting "github.com/altshiftab/authentication_go/pkg/magic_link/testing"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/generate_endpoint/generate_endpoint_config"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 )
 
 const defaultPath = "/api/login/magic/generate"

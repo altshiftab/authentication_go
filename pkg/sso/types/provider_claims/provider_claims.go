@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
 	ssoErrors "github.com/altshiftab/authentication_go/pkg/sso/errors"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 )
 
 type ProviderClaims interface {
@@ -105,13 +105,13 @@ func (c *GoogleClaims) AuthenticationContext() *AuthenticationContext {
 
 func (c *GoogleClaims) VerifiedEmailAddress() (string, error) {
 	if c.Email == "" {
-		return "", motmedelErrors.NewWithTrace(
+		return "", altshiftErrors.NewWithTrace(
 			fmt.Errorf("%w (email address is empty)", ssoErrors.ErrForbiddenUser),
 		)
 	}
 
 	if !c.EmailVerified {
-		return "", motmedelErrors.NewWithTrace(
+		return "", altshiftErrors.NewWithTrace(
 			fmt.Errorf("%w (email address not verified)", ssoErrors.ErrForbiddenUser),
 		)
 	}
@@ -156,7 +156,7 @@ func (c *MicrosoftClaims) AuthenticationContext() *AuthenticationContext {
 
 func (c *MicrosoftClaims) VerifiedEmailAddress() (string, error) {
 	if c.Email == "" {
-		return "", motmedelErrors.NewWithTrace(
+		return "", altshiftErrors.NewWithTrace(
 			fmt.Errorf("%w (email address is empty)", ssoErrors.ErrForbiddenUser),
 		)
 	}

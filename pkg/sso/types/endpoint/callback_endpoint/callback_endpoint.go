@@ -7,37 +7,13 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"github.com/Motmedel/utils_go/pkg/schema"
+	"github.com/altshiftab/utils_go/pkg/schema"
 	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
-	motmedelContext "github.com/Motmedel/utils_go/pkg/context"
-	motmedelDatabase "github.com/Motmedel/utils_go/pkg/database"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	motmedelHttpContext "github.com/Motmedel/utils_go/pkg/http/context"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor/query_extractor_config"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	motmedelJws "github.com/Motmedel/utils_go/pkg/json/jose/jws"
-	authenticatorPkg "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	motmedelOauth2 "github.com/Motmedel/utils_go/pkg/oauth2"
-	motmedelOauth2Config "github.com/Motmedel/utils_go/pkg/oauth2/types/config"
-	motmedelReflect "github.com/Motmedel/utils_go/pkg/reflect"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
@@ -49,6 +25,30 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint/sign_in_failed_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint/sign_in_unavailable_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
+	altshiftContext "github.com/altshiftab/utils_go/pkg/context"
+	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	altshiftHttpContext "github.com/altshiftab/utils_go/pkg/http/context"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor/query_extractor_config"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	altshiftJws "github.com/altshiftab/utils_go/pkg/json/jose/jws"
+	authenticatorPkg "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	altshiftOauth2 "github.com/altshiftab/utils_go/pkg/oauth2"
+	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
+	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 // categoryProblemPaths maps an OAuth error category to the canonical path of its
@@ -102,20 +102,20 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 // at the paths in categoryProblemPaths.
 func (e *Endpoint[T]) Initialize(
 	origin string,
-	oauthConfig *motmedelOauth2Config.Config,
+	oauthConfig *altshiftOauth2Config.Config,
 	idTokenAuthenticator *authenticatorPkg.AuthenticatorWithKeyHandler,
 	sessionManager *session_manager.Manager,
 ) error {
 	if oauthConfig == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("oauth config"))
+		return altshiftErrors.NewWithTrace(nil_error.New("oauth config"))
 	}
 
 	if idTokenAuthenticator == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("id token authenticator"))
+		return altshiftErrors.NewWithTrace(nil_error.New("id token authenticator"))
 	}
 
 	if sessionManager == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("session manager"))
+		return altshiftErrors.NewWithTrace(nil_error.New("session manager"))
 	}
 
 	origin = strings.TrimRight(origin, "/")
@@ -127,7 +127,7 @@ func (e *Endpoint[T]) Initialize(
 
 	db := sessionManager.Db
 	if db == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("session manager sql db"))
+		return altshiftErrors.NewWithTrace(nil_error.New("session manager sql db"))
 	}
 
 	e.Handler = func(request *http.Request, body []byte) (*muxResponse.Response, *response_error.ResponseError) {
@@ -149,19 +149,19 @@ func (e *Endpoint[T]) Initialize(
 				}
 			}
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("request cookie: %w", err), e.CallbackCookieName),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("request cookie: %w", err), e.CallbackCookieName),
 			}
 		}
 		if callbackCookie == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.NewWithInstance("cookie", "callback")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.NewWithInstance("cookie", "callback")),
 			}
 		}
 
 		oauthFlowId := callbackCookie.Value
 		if oauthFlowId == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("callback cookie value")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("callback cookie value")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("Empty callback cookie."),
@@ -169,12 +169,12 @@ func (e *Endpoint[T]) Initialize(
 			}
 		}
 
-		dbPopCtx, dbPopCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+		dbPopCtx, dbPopCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbPopCtxCancel()
 
 		oauthFlow, err := e.popOauthFlow(dbPopCtx, oauthFlowId, db)
 		if err != nil {
-			wrappedErr := motmedelErrors.New(fmt.Errorf("get oauth flow: %w", err), oauthFlowId)
+			wrappedErr := altshiftErrors.New(fmt.Errorf("get oauth flow: %w", err), oauthFlowId)
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, &response_error.ResponseError{
 					ClientError: wrappedErr,
@@ -188,14 +188,14 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if oauthFlow == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(nil_error.New("oauth flow")),
+				ServerError: altshiftErrors.New(nil_error.New("oauth flow")),
 			}
 		}
 
 		oauthFlowExpiresAt := oauthFlow.ExpiresAt
 		if oauthFlowExpiresAt == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("oauth flow expires at")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("oauth flow expires at")),
 			}
 		}
 
@@ -252,12 +252,12 @@ func (e *Endpoint[T]) Initialize(
 			// fields. The mux only does this automatically when it handles a
 			// ResponseError, which is deliberately avoided here.
 			logCtx := ctx
-			if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*motmedelHttpTypes.HttpContext); ok {
-				logCtx = motmedelHttpContext.WithHttpContextValue(ctx, httpContext)
+			if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok {
+				logCtx = altshiftHttpContext.WithHttpContextValue(ctx, httpContext)
 			}
 
 			slog.WarnContext(
-				motmedelContext.WithError(logCtx, motmedelErrors.NewWithTrace(oauthError)),
+				altshiftContext.WithError(logCtx, altshiftErrors.NewWithTrace(oauthError)),
 				"An OAuth error occurred.",
 				slog.Group(
 					"event",
@@ -288,7 +288,7 @@ func (e *Endpoint[T]) Initialize(
 
 		if urlInput.Code == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("code")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("code")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("Missing authorization code."),
@@ -296,15 +296,15 @@ func (e *Endpoint[T]) Initialize(
 			}
 		}
 
-		token, err := oauthConfig.Exchange(ctx, urlInput.Code, motmedelOauth2.VerifierOption(oauthFlow.CodeVerifier))
+		token, err := oauthConfig.Exchange(ctx, urlInput.Code, altshiftOauth2.VerifierOption(oauthFlow.CodeVerifier))
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("oauth config exchange: %w", err)),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("oauth config exchange: %w", err)),
 			}
 		}
 		if token == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("oauth token")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("oauth token")),
 			}
 		}
 
@@ -312,14 +312,14 @@ func (e *Endpoint[T]) Initialize(
 		idToken, err := utils.ConvertToNonZero[string](idTokenAny)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(fmt.Errorf("convert to non zero (id token): %w", err), idTokenAny),
+				ServerError: altshiftErrors.New(fmt.Errorf("convert to non zero (id token): %w", err), idTokenAny),
 			}
 		}
 
 		authenticatedIdToken, err := idTokenAuthenticator.Authenticate(ctx, idToken)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(
+				ServerError: altshiftErrors.New(
 					fmt.Errorf("authenticator with key handler authenticate: %w", err),
 					idToken,
 				),
@@ -327,26 +327,26 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if authenticatedIdToken == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated id token")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated id token")),
 			}
 		}
 
-		_, idTokenPayload, _, err := motmedelJws.Parse(idToken)
+		_, idTokenPayload, _, err := altshiftJws.Parse(idToken)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("jwt parse: %w", err), idToken),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("jwt parse: %w", err), idToken),
 			}
 		}
 		if len(idTokenPayload) == 0 {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("id token payload")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("id token payload")),
 			}
 		}
 
 		var providerClaims T
 		if err := json.Unmarshal(idTokenPayload, &providerClaims); err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(
+				ServerError: altshiftErrors.NewWithTrace(
 					fmt.Errorf("json unmarshal (authenticated id token raw): %w", err),
 					idTokenPayload,
 				),
@@ -359,7 +359,7 @@ func (e *Endpoint[T]) Initialize(
 		// rest of the service by the same fields.
 		emailAddress, err := providerClaims.VerifiedEmailAddress()
 		if err != nil {
-			wrappedErr := motmedelErrors.New(
+			wrappedErr := altshiftErrors.New(
 				fmt.Errorf("provider claims verified email address: %w", err),
 				providerClaims,
 			)
@@ -375,13 +375,13 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if emailAddress == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("email address")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("email address")),
 			}
 		}
 
 		organizationIdentifier := providerClaims.OrganizationIdentifier()
 
-		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*motmedelHttpTypes.HttpContext); ok && httpContext != nil {
+		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
 			httpContext.User = &schema.User{
 				Id:     providerClaims.Subject(),
 				Email:  emailAddress,
@@ -427,7 +427,7 @@ func (e *Endpoint[T]) Initialize(
 		// makes this keep consumer accounts out.
 		if e.RequireOrganization && organizationIdentifier == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(ssoErrors.ErrForbiddenUser, organizationIdentifier),
+				ClientError: altshiftErrors.NewWithTrace(ssoErrors.ErrForbiddenUser, organizationIdentifier),
 				ProblemDetail: problem_detail.New(
 					http.StatusForbidden,
 					problem_detail_config.WithDetail("The account does not belong to an organization."),
@@ -440,7 +440,7 @@ func (e *Endpoint[T]) Initialize(
 		if allowedOrganizations := e.AllowedOrganizations; len(allowedOrganizations) != 0 {
 			if organizationIdentifier == "" || !slices.Contains(allowedOrganizations, organizationIdentifier) {
 				return nil, &response_error.ResponseError{
-					ClientError: motmedelErrors.NewWithTrace(ssoErrors.ErrForbiddenUser, organizationIdentifier),
+					ClientError: altshiftErrors.NewWithTrace(ssoErrors.ErrForbiddenUser, organizationIdentifier),
 					ProblemDetail: problem_detail.New(
 						http.StatusForbidden,
 						problem_detail_config.WithDetail(
@@ -453,7 +453,7 @@ func (e *Endpoint[T]) Initialize(
 
 		if e.RequireStrongAuthentication && !strongAuthentication {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(ssoErrors.ErrForbiddenUser),
+				ClientError: altshiftErrors.NewWithTrace(ssoErrors.ErrForbiddenUser),
 				ProblemDetail: problem_detail.New(
 					http.StatusForbidden,
 					problem_detail_config.WithDetail(
@@ -471,7 +471,7 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if response == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("response")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
 			}
 		}
 
@@ -499,7 +499,7 @@ func (e *Endpoint[T]) Initialize(
 
 func New[T provider_claims.ProviderClaims](path string, options ...callback_endpoint_config.Option) (*Endpoint[T], error) {
 	if path == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("path"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("path"))
 	}
 
 	config := callback_endpoint_config.New(options...)
@@ -511,7 +511,7 @@ func New[T provider_claims.ProviderClaims](path string, options ...callback_endp
 				UrlParser: adapter.New(urlInputParser),
 				Public:    true,
 				Hint: &endpoint.Hint{
-					InputType: motmedelReflect.TypeOf[UrlInput](),
+					InputType: altshiftReflect.TypeOf[UrlInput](),
 				},
 			},
 		},

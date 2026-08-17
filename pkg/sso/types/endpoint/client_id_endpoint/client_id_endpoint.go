@@ -3,15 +3,15 @@ package client_id_endpoint
 import (
 	"net/http"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	motmedelReflect "github.com/Motmedel/utils_go/pkg/reflect"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 )
 
 type Endpoint struct {
@@ -21,7 +21,7 @@ type Endpoint struct {
 
 func (e *Endpoint) Initialize(clientId string) error {
 	if clientId == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("client id"))
+		return altshiftErrors.NewWithTrace(empty_error.New("client id"))
 	}
 
 	e.ClientId = clientId
@@ -45,7 +45,7 @@ func (e *Endpoint) Initialize(clientId string) error {
 
 func New(path string) (*Endpoint, error) {
 	if path == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("path"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("path"))
 	}
 
 	return &Endpoint{
@@ -56,7 +56,7 @@ func New(path string) (*Endpoint, error) {
 				UrlParser: adapter.New(query_extractor.Empty),
 				Public:    true,
 				Hint: &endpoint.Hint{
-					OutputType:        motmedelReflect.TypeOf[string](),
+					OutputType:        altshiftReflect.TypeOf[string](),
 					OutputContentType: "text/plain",
 				},
 			},

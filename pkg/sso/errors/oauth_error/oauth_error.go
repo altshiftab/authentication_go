@@ -31,7 +31,7 @@ func (e *Error) Error() string {
 	return msg
 }
 
-// GetCode satisfies github.com/Motmedel/utils_go/pkg/errors.CodeErrorI so the
+// GetCode satisfies github.com/altshiftab/utils_go/pkg/errors.CodeErrorI so the
 // OAuth error code is emitted as ECS `error.code` by the error context extractor.
 func (e *Error) GetCode() string {
 	return e.Code

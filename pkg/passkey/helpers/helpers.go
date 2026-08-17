@@ -6,18 +6,18 @@ import (
 	"fmt"
 	"net/http"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	muxResponseError "github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/webauthn"
 	passkeyProviderErrors "github.com/altshiftab/authentication_go/pkg/passkey/errors"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	muxResponseError "github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/webauthn"
 )
 
 func GenerateChallenge() ([]byte, error) {
 	challenge := make([]byte, 64)
 	if _, err := rand.Read(challenge); err != nil {
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("rand read: %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("rand read: %w", err))
 	}
 
 	return challenge, nil
@@ -25,7 +25,7 @@ func GenerateChallenge() ([]byte, error) {
 
 func MakeValidationResponseError(err error, badRequestErrors []error) *muxResponseError.ResponseError {
 	var statusCode int
-	isBadRequestErr := motmedelErrors.IsAny(err, webauthn.CommonBadRequestErrors...) || motmedelErrors.IsAny(err, badRequestErrors...)
+	isBadRequestErr := altshiftErrors.IsAny(err, webauthn.CommonBadRequestErrors...) || altshiftErrors.IsAny(err, badRequestErrors...)
 	if isBadRequestErr {
 		statusCode = http.StatusBadRequest
 	} else {

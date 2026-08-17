@@ -15,16 +15,6 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor/token_cookie_extractor_config"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
 	"github.com/altshiftab/authentication_go/pkg/session"
@@ -36,6 +26,16 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_register_endpoint/dbsc_register_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie/session_cookie_config"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor/token_cookie_extractor_config"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 var defaultSessionCookieString string
@@ -43,7 +43,7 @@ var defaultAuthorizationRequestParser *authorizer_request_parser.Parser
 var defaultProcessor *dbsc_session_response_processor.Processor
 
 var db *sql.DB
-var method motmedelCryptoInterfaces.Method
+var method altshiftCryptoInterfaces.Method
 
 func TestMain(m *testing.M) {
 	var err error
@@ -457,12 +457,12 @@ func TestEndpoint_Initialize(t *testing.T) {
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	opts := []motmedelTestingCmp.Option{
-		motmedelTestingCmp.IgnoreFields(
+	opts := []altshiftTestingCmp.Option{
+		altshiftTestingCmp.IgnoreFields(
 			Endpoint{},
 			"updateAuthenticationWithDbscPublicKey",
 		),
-		motmedelTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
+		altshiftTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
 	}
 
 	type args struct {
@@ -522,7 +522,7 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := New(tt.args.options...)
-			if diff := motmedelTestingCmp.Diff(tt.want, got, opts...); diff != "" {
+			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
 			}
 		})

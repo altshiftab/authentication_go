@@ -8,16 +8,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Motmedel/utils_go/pkg/database/sql/postgres"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
 	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/customer"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
+	"github.com/altshiftab/utils_go/pkg/database/sql/postgres"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 )
 
 // isIdTokenUniqueViolation reports whether err is a unique violation of the id token hash
@@ -43,11 +43,11 @@ func InsertAuthentication(
 	database *sql.DB,
 ) (*authenticationPkg.Authentication, error) {
 	if accountId == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("account id"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("account id"))
 	}
 
 	if database == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql database"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql database"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -97,15 +97,15 @@ func InsertAuthentication(
 		userAgentArg,
 	)
 	if row == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql row"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
 
 	var authenticationId string
 	if err := row.Scan(&authenticationId); err != nil {
 		if isIdTokenUniqueViolation(err) {
-			return nil, motmedelErrors.NewWithTrace(fmt.Errorf("%w: %w", databaseErrors.ErrIdTokenAlreadyUsed, err))
+			return nil, altshiftErrors.NewWithTrace(fmt.Errorf("%w: %w", databaseErrors.ErrIdTokenAlreadyUsed, err))
 		}
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
 	}
 
 	authentication := &authenticationPkg.Authentication{
@@ -128,11 +128,11 @@ func InsertAuthentication(
 
 func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.DB) (*authenticationPkg.Authentication, error) {
 	if id == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("authentication id"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
 	}
 
 	if database == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql database"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql database"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -141,7 +141,7 @@ func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.D
 
 	row := database.QueryRowContext(ctx, authenticationSelectRefreshQuery, id)
 	if row == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql row"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
 
 	// The account identity is selected too, so that a session can be minted from the
@@ -162,7 +162,7 @@ func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.D
 		&accountId, &emailAddress, &locked, &customerId, &customerName,
 		postgres.TextArrayScanner{Target: &roles},
 	); err != nil {
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
 	}
 
 	account := &accountPkg.Account{Id: accountId, EmailAddress: emailAddress, Locked: locked, Roles: roles}
@@ -181,11 +181,11 @@ func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.D
 
 func SelectEmailAddressAccount(ctx context.Context, emailAddress string, database *sql.DB) (*accountPkg.Account, error) {
 	if emailAddress == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("email address"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("email address"))
 	}
 
 	if database == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql database"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql database"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -206,11 +206,11 @@ func SelectEmailAddressAccount(ctx context.Context, emailAddress string, databas
 		emailAddress,
 	)
 	if row == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql row"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
 
 	if err := row.Scan(&accountId, &locked, &customerId, &customerName, postgres.TextArrayScanner{Target: &roles}); err != nil {
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
 	}
 
 	account := &accountPkg.Account{Id: accountId, EmailAddress: emailAddress, Locked: locked, Roles: roles}
@@ -223,15 +223,15 @@ func SelectEmailAddressAccount(ctx context.Context, emailAddress string, databas
 
 func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key []byte, database *sql.DB) error {
 	if id == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("authentication id"))
+		return altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
 	}
 
 	if len(key) == 0 {
-		return motmedelErrors.NewWithTrace(empty_error.New("dbsc public key"))
+		return altshiftErrors.NewWithTrace(empty_error.New("dbsc public key"))
 	}
 
 	if database == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("sql database"))
+		return altshiftErrors.NewWithTrace(nil_error.New("sql database"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -240,21 +240,21 @@ func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key [
 
 	result, err := database.ExecContext(ctx, authenticationUpdateWithDbscPublicKeyQuery, key, id)
 	if err != nil {
-		return motmedelErrors.NewWithTrace(
+		return altshiftErrors.NewWithTrace(
 			fmt.Errorf("sql database exec context: %w", err),
 		)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return motmedelErrors.NewWithTrace(
+		return altshiftErrors.NewWithTrace(
 			fmt.Errorf("sql database rows affected: %w", err),
 			result,
 		)
 	}
 
 	if rowsAffected == 0 {
-		return motmedelErrors.NewWithTrace(sql.ErrNoRows)
+		return altshiftErrors.NewWithTrace(sql.ErrNoRows)
 	}
 
 	return nil
@@ -262,11 +262,11 @@ func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key [
 
 func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql.DB) error {
 	if id == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("authentication id"))
+		return altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
 	}
 
 	if database == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("sql database"))
+		return altshiftErrors.NewWithTrace(nil_error.New("sql database"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -275,16 +275,16 @@ func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql
 
 	result, err := database.ExecContext(ctx, authenticationUpdateWithEndedQuery, id)
 	if err != nil {
-		return motmedelErrors.NewWithTrace(fmt.Errorf("sql database exec: %w", err))
+		return altshiftErrors.NewWithTrace(fmt.Errorf("sql database exec: %w", err))
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return motmedelErrors.NewWithTrace(fmt.Errorf("sql database rows affected: %w", err), result)
+		return altshiftErrors.NewWithTrace(fmt.Errorf("sql database rows affected: %w", err), result)
 	}
 
 	if rowsAffected == 0 {
-		return motmedelErrors.NewWithTrace(sql.ErrNoRows)
+		return altshiftErrors.NewWithTrace(sql.ErrNoRows)
 	}
 
 	return nil
@@ -304,24 +304,24 @@ func InsertOauthFlow(
 	database *sql.DB,
 ) (*oauth_flow.Flow, error) {
 	if state == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("state"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("state"))
 	}
 
 	if codeVerifier == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("code verifier"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("code verifier"))
 	}
 
 	// TODO: Use empty instance error?
 	if redirectUrl == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("redirect url"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("redirect url"))
 	}
 
 	if expirationDuration == 0 {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("expiration duration"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("expiration duration"))
 	}
 
 	if database == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql database"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql database"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -331,12 +331,12 @@ func InsertOauthFlow(
 	expiresAt := time.Now().Add(expirationDuration)
 	row := database.QueryRowContext(ctx, oauthFlowInsertQuery, state, codeVerifier, redirectUrl, expiresAt)
 	if row == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql row"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
 
 	var id string
 	if err := row.Scan(&id); err != nil {
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err), row)
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err), row)
 	}
 
 	return &oauth_flow.Flow{
@@ -354,22 +354,22 @@ func PopOauthFlow(ctx context.Context, id string, db *sql.DB) (*oauth_flow.Flow,
 	}
 
 	if id == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("oauth flow id"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("oauth flow id"))
 	}
 
 	if db == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql db"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql db"))
 	}
 
 	var flow oauth_flow.Flow
 
 	row := db.QueryRowContext(ctx, oauthFlowDeleteQuery, id)
 	if row == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql row"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
 
 	if err := row.Scan(&flow.State, &flow.CodeVerifier, &flow.ExpiresAt, &flow.RedirectUrl); err != nil {
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
 	}
 
 	return &flow, nil
@@ -388,19 +388,19 @@ func InsertDbscChallenge(
 	db *sql.DB,
 ) error {
 	if challenge == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("dbsc challenge"))
+		return altshiftErrors.NewWithTrace(empty_error.New("dbsc challenge"))
 	}
 
 	if authenticationId == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("authentication id"))
+		return altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
 	}
 
 	if expirationDuration == 0 {
-		return motmedelErrors.NewWithTrace(empty_error.New("expiration duration"))
+		return altshiftErrors.NewWithTrace(empty_error.New("expiration duration"))
 	}
 
 	if db == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("sql db"))
+		return altshiftErrors.NewWithTrace(nil_error.New("sql db"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -409,7 +409,7 @@ func InsertDbscChallenge(
 
 	expiresAt := time.Now().Add(expirationDuration)
 	if _, err := db.ExecContext(ctx, dbscChallengeInsertQuery, []byte(challenge), authenticationId, expiresAt); err != nil {
-		return motmedelErrors.NewWithTrace(
+		return altshiftErrors.NewWithTrace(
 			fmt.Errorf("sql db exec context: %w", err),
 			expiresAt,
 		)
@@ -420,15 +420,15 @@ func InsertDbscChallenge(
 
 func PopDbscChallenge(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
 	if challenge == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("challenge"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("challenge"))
 	}
 
 	if authenticationId == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("authentication id"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
 	}
 
 	if db == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql db"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql db"))
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -439,11 +439,11 @@ func PopDbscChallenge(ctx context.Context, challenge string, authenticationId st
 
 	row := db.QueryRowContext(ctx, dbscChallengeDeleteQuery, challenge, authenticationId)
 	if row == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("sql row"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
 
 	if err := row.Scan(&expiresAt); err != nil {
-		return nil, motmedelErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
 	}
 
 	return &dbsc_challenge.Challenge{

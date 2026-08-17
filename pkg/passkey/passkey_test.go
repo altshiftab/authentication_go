@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/webauthn"
 	"github.com/altshiftab/authentication_go/pkg/passkey/helpers/login/types"
 	passkeyConfig "github.com/altshiftab/authentication_go/pkg/passkey/passkey_config"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/webauthn"
 )
 
 type stubUserHandler struct {

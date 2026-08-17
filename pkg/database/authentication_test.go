@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	motmedelSqlTesting "github.com/Motmedel/utils_go/pkg/database/sql/testing"
+	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
 )
 
 func canceledCtx() context.Context {
@@ -19,7 +19,7 @@ func canceledCtx() context.Context {
 func TestInsertAuthentication(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -51,7 +51,7 @@ func TestInsertAuthentication(t *testing.T) {
 func TestSelectRefreshAuthentication(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -79,7 +79,7 @@ func TestSelectRefreshAuthentication(t *testing.T) {
 func TestSelectEmailAddressAccount(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -107,7 +107,7 @@ func TestSelectEmailAddressAccount(t *testing.T) {
 func TestUpdateAuthenticationWithDbscPublicKey(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -138,7 +138,7 @@ func TestUpdateAuthenticationWithDbscPublicKey(t *testing.T) {
 func TestUpdateAuthenticationWithEnded(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -167,7 +167,7 @@ func TestUpdateAuthenticationWithEnded(t *testing.T) {
 func TestInsertOauthFlow(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -201,7 +201,7 @@ func TestInsertOauthFlow(t *testing.T) {
 func TestPopOauthFlow(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -229,7 +229,7 @@ func TestPopOauthFlow(t *testing.T) {
 func TestInsertDbscChallenge(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
@@ -262,7 +262,7 @@ func TestInsertDbscChallenge(t *testing.T) {
 func TestPopDbscChallenge(t *testing.T) {
 	t.Parallel()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {

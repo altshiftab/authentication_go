@@ -9,16 +9,16 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelJwtToken "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token"
 	magicLinkTesting "github.com/altshiftab/authentication_go/pkg/magic_link/testing"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/landing_endpoint/landing_endpoint_config"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
 )
 
-var signer *motmedelCryptoEddsa.Method
+var signer *altshiftCryptoEddsa.Method
 
 func TestMain(m *testing.M) {
 	signer = magicLinkTesting.NewSigner()
@@ -27,7 +27,7 @@ func TestMain(m *testing.M) {
 
 func mintToken(t *testing.T, payload map[string]any) string {
 	t.Helper()
-	token := &motmedelJwtToken.Token{Payload: payload}
+	token := &altshiftJwtToken.Token{Payload: payload}
 	tokenString, err := token.Encode(signer)
 	if err != nil {
 		t.Fatalf("token encode: %v", err)

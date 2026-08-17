@@ -10,25 +10,25 @@ import (
 	"net/http"
 	"time"
 
-	motmedelCryptoEcdsa "github.com/Motmedel/utils_go/pkg/crypto/ecdsa"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/interfaces/comparer"
-	motmedelJwkKey "github.com/Motmedel/utils_go/pkg/json/jose/jwk/types/key"
-	motmedelJwtToken "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token/authenticated_token"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token/authenticated_token/authenticated_token_config"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/header_validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/setting"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
 	"github.com/altshiftab/authentication_go/pkg/session/types/dbsc_session_response_processor/dbsc_session_response_processor_config"
+	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/interfaces/comparer"
+	altshiftJwkKey "github.com/altshiftab/utils_go/pkg/json/jose/jwk/types/key"
+	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token/authenticated_token"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token/authenticated_token/authenticated_token_config"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/header_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 type Input struct {
@@ -60,23 +60,23 @@ func (p *Processor) processWithRegisteredKey(ctx context.Context, input *Input, 
 	publicKey, err := x509.ParsePKIXPublicKey(input.PublicKey)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("x509 parse pkix public key: %w", err)),
+			ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("x509 parse pkix public key: %w", err)),
 		}
 	}
 
 	ecdsaPublicKey, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(
-				fmt.Errorf("%w: the registered key is not an ecdsa key", motmedelErrors.ErrValidationError),
+			ServerError: altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: the registered key is not an ecdsa key", altshiftErrors.ErrValidationError),
 			),
 		}
 	}
 
-	namedVerifier, err := motmedelCryptoEcdsa.FromPublicKey(ecdsaPublicKey)
+	namedVerifier, err := altshiftCryptoEcdsa.FromPublicKey(ecdsaPublicKey)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("ecdsa from public key: %w", err)),
+			ServerError: altshiftErrors.New(fmt.Errorf("ecdsa from public key: %w", err)),
 		}
 	}
 
@@ -86,8 +86,8 @@ func (p *Processor) processWithRegisteredKey(ctx context.Context, input *Input, 
 		authenticated_token_config.WithSignatureVerifier(namedVerifier),
 	)
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("authenticated jwt token new: %w", err), tokenString)
-		if motmedelErrors.IsAny(wrappedErr, motmedelErrors.ErrValidationError, motmedelErrors.ErrVerificationError, motmedelErrors.ErrParseError) {
+		wrappedErr := altshiftErrors.New(fmt.Errorf("authenticated jwt token new: %w", err), tokenString)
+		if altshiftErrors.IsAny(wrappedErr, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
 				ProblemDetail: problem_detail.New(
@@ -100,7 +100,7 @@ func (p *Processor) processWithRegisteredKey(ctx context.Context, input *Input, 
 	}
 	if authenticatedToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated jwt token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated jwt token")),
 		}
 	}
 
@@ -113,23 +113,23 @@ func (p *Processor) processWithRegisteredKey(ctx context.Context, input *Input, 
 
 func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *response_error.ResponseError) {
 	if input == nil {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("input"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("input"))}
 	}
 
 	tokenString := input.TokenString
 	if tokenString == "" {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(empty_error.New("token string"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(empty_error.New("token string"))}
 	}
 
 	authenticationId := input.AuthenticationId
 	if authenticationId == "" {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication id"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication id"))}
 	}
 
-	token, err := motmedelJwtToken.New(tokenString)
+	token, err := altshiftJwtToken.New(tokenString)
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("new token: %w", err), tokenString)
-		if errors.Is(err, motmedelErrors.ErrParseError) {
+		wrappedErr := altshiftErrors.New(fmt.Errorf("new token: %w", err), tokenString)
+		if errors.Is(err, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
 				ProblemDetail: problem_detail.New(
@@ -141,17 +141,17 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 		return nil, &response_error.ResponseError{ServerError: wrappedErr}
 	}
 	if token == nil {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("jwt token"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("jwt token"))}
 	}
 
 	tokenPayload := token.Payload
 	if tokenPayload == nil {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("jwt token payload"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("jwt token payload"))}
 	}
 
 	tokenHeader := token.Header
 	if tokenHeader == nil {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("jwt token header"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("jwt token header"))}
 	}
 
 	// A refresh proves possession of the key registered earlier, so it is verified against that key
@@ -165,8 +165,8 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 	// that claim nor "aud" and "iat", so requiring them rejected every registration.
 	key, err := utils.MapGetConvert[map[string]any](tokenHeader, "jwk")
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("map get convert: %w", err), tokenPayload)
-		if motmedelErrors.IsAny(err, motmedelErrors.ErrConversionNotOk, motmedelErrors.ErrNotInMap) {
+		wrappedErr := altshiftErrors.New(fmt.Errorf("map get convert: %w", err), tokenPayload)
+		if altshiftErrors.IsAny(err, altshiftErrors.ErrConversionNotOk, altshiftErrors.ErrNotInMap) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
 				ProblemDetail: problem_detail.New(
@@ -179,7 +179,7 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 	}
 	if key == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("token key object")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("token key object")),
 			ProblemDetail: problem_detail.New(
 				http.StatusBadRequest,
 				problem_detail_config.WithDetail("Invalid token; nil key object."),
@@ -187,10 +187,10 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 		}
 	}
 
-	jwkKey, err := motmedelJwkKey.New(key)
+	jwkKey, err := altshiftJwkKey.New(key)
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("jwk key new: %w", err), key)
-		if errors.Is(err, motmedelErrors.ErrValidationError) {
+		wrappedErr := altshiftErrors.New(fmt.Errorf("jwk key new: %w", err), key)
+		if errors.Is(err, altshiftErrors.ErrValidationError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
 				ProblemDetail: problem_detail.New(
@@ -202,17 +202,17 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 		return nil, &response_error.ResponseError{ServerError: wrappedErr}
 	}
 	if jwkKey == nil {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("jwk key"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("jwk key"))}
 	}
 
 	material := jwkKey.Material
 	if utils.IsNil(material) {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("jwk key material"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("jwk key material"))}
 	}
 
 	namedVerifier, err := jwkKey.NamedVerifier()
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("jwk key named verifier: %w", err), key)
+		wrappedErr := altshiftErrors.New(fmt.Errorf("jwk key named verifier: %w", err), key)
 		if emptyError, ok := errors.AsType[*empty_error.Error](err); ok && emptyError.Field == "alg" {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
@@ -225,13 +225,13 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 		return nil, &response_error.ResponseError{ServerError: wrappedErr}
 	}
 	if utils.IsNil(namedVerifier) {
-		return nil, &response_error.ResponseError{ServerError: motmedelErrors.NewWithTrace(nil_error.New("named verifier"))}
+		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("named verifier"))}
 	}
 
 	publicKey, err := material.PublicKey()
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(
+			ServerError: altshiftErrors.NewWithTrace(
 				fmt.Errorf("jwk key material public key: %w", err),
 			),
 		}
@@ -240,15 +240,15 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 	derEncodedKeyMaterial, err := x509.MarshalPKIXPublicKey(publicKey)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(
-				fmt.Errorf("%w: x509 marshal pkix public key: %w", motmedelErrors.ErrValidationError, err),
+			ServerError: altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: x509 marshal pkix public key: %w", altshiftErrors.ErrValidationError, err),
 				key,
 			),
 		}
 	}
 	if len(derEncodedKeyMaterial) == 0 {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("x509 marshal pkix public key material")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("x509 marshal pkix public key material")),
 		}
 	}
 
@@ -258,11 +258,11 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 		authenticated_token_config.WithSignatureVerifier(namedVerifier),
 	)
 	if err != nil {
-		wrappedErr := motmedelErrors.New(
+		wrappedErr := altshiftErrors.New(
 			fmt.Errorf("authenticated jwt token new: %w", err),
 			tokenString, authenticationId,
 		)
-		if motmedelErrors.IsAny(wrappedErr, motmedelErrors.ErrValidationError, motmedelErrors.ErrVerificationError, motmedelErrors.ErrParseError) {
+		if altshiftErrors.IsAny(wrappedErr, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
 				ProblemDetail: problem_detail.New(
@@ -276,14 +276,14 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 	}
 	if authenticatedToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated jwt token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated jwt token")),
 		}
 	}
 
 	authenticatedTokenPayload := authenticatedToken.Payload
 	if authenticatedTokenPayload == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated jwt token payload")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated jwt token payload")),
 		}
 	}
 
@@ -300,14 +300,14 @@ func (p *Processor) consumeChallenge(ctx context.Context, payload map[string]any
 	jti, err := utils.MapGetConvert[string](payload, "jti")
 	if err != nil {
 		return &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("map get convert (jti): %w", err), payload),
+			ServerError: altshiftErrors.New(fmt.Errorf("map get convert (jti): %w", err), payload),
 		}
 	}
 
 	dbscChallenge, err := p.popDbscChallenge(ctx, jti, authenticationId, p.Db)
 	if err != nil {
 		return &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("get challenge: %w", err), jti, authenticationId),
+			ServerError: altshiftErrors.New(fmt.Errorf("get challenge: %w", err), jti, authenticationId),
 		}
 	}
 	if dbscChallenge == nil {
@@ -322,7 +322,7 @@ func (p *Processor) consumeChallenge(ctx context.Context, payload map[string]any
 	expiresAt := dbscChallenge.ExpiresAt
 	if expiresAt == nil {
 		return &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("dbsc challenge expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("dbsc challenge expires at")),
 		}
 	}
 	if time.Now().After(*expiresAt) {
@@ -339,11 +339,11 @@ func (p *Processor) consumeChallenge(ctx context.Context, payload map[string]any
 
 func New(audience string, db *sql.DB, options ...dbsc_session_response_processor_config.Option) (*Processor, error) {
 	if audience == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("audience"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("audience"))
 	}
 
 	if db == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("db"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("db"))
 	}
 
 	config := dbsc_session_response_processor_config.New(options...)

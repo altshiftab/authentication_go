@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie/session_cookie_config"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
 )
 
 type Cookie = http.Cookie
@@ -28,15 +28,15 @@ func makeSessionCookie(value string, expiresAt time.Time, name string, domain st
 
 func New(tokenString string, expiresAt time.Time, name string, domain string, options ...session_cookie_config.Option) (*http.Cookie, error) {
 	if tokenString == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("jwt token string"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("jwt token string"))
 	}
 
 	if name == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("cookie name"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("cookie name"))
 	}
 
 	if domain == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("cookie domain"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("cookie domain"))
 	}
 
 	config := session_cookie_config.New(options...)

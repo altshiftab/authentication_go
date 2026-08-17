@@ -3,12 +3,12 @@ package oauth_error
 import (
 	"testing"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 )
 
 // Error must satisfy the error context extractor's CodeErrorI so that the OAuth
 // error code is emitted as ECS `error.code`.
-var _ motmedelErrors.CodeErrorI = (*Error)(nil)
+var _ altshiftErrors.CodeErrorI = (*Error)(nil)
 
 func TestError(t *testing.T) {
 	t.Parallel()

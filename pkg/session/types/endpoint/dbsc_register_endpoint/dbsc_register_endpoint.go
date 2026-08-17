@@ -9,23 +9,6 @@ import (
 	"net/http"
 	"net/url"
 
-	motmedelDatabase "github.com/Motmedel/utils_go/pkg/database"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/header_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/session"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/dbsc_session_response_processor"
@@ -34,6 +17,23 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie/session_cookie_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_instructions"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/header_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 // Use centralized DBSC header constants from the session package.
@@ -66,7 +66,7 @@ type Endpoint struct {
 func requestOrigin(request *http.Request) (string, error) {
 	host := request.Host
 	if host == "" {
-		return "", motmedelErrors.NewWithTrace(empty_error.New("host"))
+		return "", altshiftErrors.NewWithTrace(empty_error.New("host"))
 	}
 
 	var scheme string
@@ -110,15 +110,15 @@ func requestOrigin(request *http.Request) (string, error) {
 // it answers 200 with the registration endpoint's origin listed in "registering_origins".
 func siteOrigin(origin string, registeredDomain string) (string, error) {
 	if origin == "" {
-		return "", motmedelErrors.NewWithTrace(empty_error.New("origin"))
+		return "", altshiftErrors.NewWithTrace(empty_error.New("origin"))
 	}
 	if registeredDomain == "" {
-		return "", motmedelErrors.NewWithTrace(empty_error.New("registered domain"))
+		return "", altshiftErrors.NewWithTrace(empty_error.New("registered domain"))
 	}
 
 	parsedOrigin, err := url.Parse(origin)
 	if err != nil {
-		return "", motmedelErrors.NewWithTrace(fmt.Errorf("url parse: %w", err), origin)
+		return "", altshiftErrors.NewWithTrace(fmt.Errorf("url parse: %w", err), origin)
 	}
 
 	host := registeredDomain
@@ -141,14 +141,14 @@ func makeSessionCookieHeader(
 	claims := sessionToken.Claims
 	if claims == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session token claims")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token claims")),
 		}
 	}
 
 	expiresAt := claims.ExpiresAt
 	if expiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session token claims expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token claims expires at")),
 		}
 	}
 
@@ -156,7 +156,7 @@ func makeSessionCookieHeader(
 	requestCookie, err := request.Cookie(cookieName)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("request cookie: %w", err), cookieName),
+			ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("request cookie: %w", err), cookieName),
 		}
 	}
 
@@ -169,7 +169,7 @@ func makeSessionCookieHeader(
 	)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
 				expiresAt.Time, cookieName, registeredDomain,
 			),
@@ -177,7 +177,7 @@ func makeSessionCookieHeader(
 	}
 	if sessionCookie == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session cookie")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session cookie")),
 		}
 	}
 
@@ -191,39 +191,39 @@ func (e *Endpoint) Initialize(
 	sessionCookieOptions ...session_cookie_config.Option,
 ) error {
 	if authorizerRequestParser == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("authorizer request parser"))
+		return altshiftErrors.NewWithTrace(nil_error.New("authorizer request parser"))
 	}
 
 	jwtExtractor := authorizerRequestParser.JwtExtractor
 	if jwtExtractor == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("jwt extractor"))
+		return altshiftErrors.NewWithTrace(nil_error.New("jwt extractor"))
 	}
 
 	tokenExtractor := jwtExtractor.TokenExtractor
 	if tokenExtractor == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("jwt token extractor"))
+		return altshiftErrors.NewWithTrace(nil_error.New("jwt token extractor"))
 	}
 
 	tokenCookieExtractor, err := utils.Convert[*token_cookie_extractor.Parser](tokenExtractor)
 	if err != nil {
-		return motmedelErrors.New(fmt.Errorf("convert (token cookie extractor): %w", err), tokenExtractor)
+		return altshiftErrors.New(fmt.Errorf("convert (token cookie extractor): %w", err), tokenExtractor)
 	}
 	if tokenCookieExtractor == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("token cookie extractor"))
+		return altshiftErrors.NewWithTrace(nil_error.New("token cookie extractor"))
 	}
 
 	cookieName := tokenCookieExtractor.Name
 	if cookieName == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("cookie name"))
+		return altshiftErrors.NewWithTrace(empty_error.New("cookie name"))
 	}
 
 	if dbscSessionResponseProcessor == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("dbsc session response processor"))
+		return altshiftErrors.NewWithTrace(nil_error.New("dbsc session response processor"))
 	}
 
 	db := dbscSessionResponseProcessor.Db
 	if db == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("dbsc session response processor sql db"))
+		return altshiftErrors.NewWithTrace(nil_error.New("dbsc session response processor sql db"))
 	}
 
 	e.AuthenticationParser = adapter.New(authorizerRequestParser)
@@ -261,7 +261,7 @@ func (e *Endpoint) Initialize(
 		authenticationId := sessionToken.AuthenticationId
 		if authenticationId == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication id")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication id")),
 			}
 		}
 
@@ -271,7 +271,7 @@ func (e *Endpoint) Initialize(
 		}
 		if len(publicKey) == 0 {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("public key")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("public key")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The public key is empty."),
@@ -279,11 +279,11 @@ func (e *Endpoint) Initialize(
 			}
 		}
 
-		dbCtx, dbCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+		dbCtx, dbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbCtxCancel()
 		if err := e.updateAuthenticationWithDbscPublicKey(dbCtx, authenticationId, publicKey, db); err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(
+				ServerError: altshiftErrors.New(
 					fmt.Errorf("update authentication with dbsc public key: %w", err),
 					authenticationId, publicKey,
 				),
@@ -295,7 +295,7 @@ func (e *Endpoint) Initialize(
 			var err error
 			if origin, err = requestOrigin(request); err != nil {
 				return nil, &response_error.ResponseError{
-					ServerError: motmedelErrors.New(fmt.Errorf("request origin: %w", err)),
+					ServerError: altshiftErrors.New(fmt.Errorf("request origin: %w", err)),
 				}
 			}
 
@@ -303,7 +303,7 @@ func (e *Endpoint) Initialize(
 				siteScopedOrigin, err := siteOrigin(origin, registeredDomain)
 				if err != nil {
 					return nil, &response_error.ResponseError{
-						ServerError: motmedelErrors.New(
+						ServerError: altshiftErrors.New(
 							fmt.Errorf("site origin: %w", err),
 							origin, registeredDomain,
 						),
@@ -334,7 +334,7 @@ func (e *Endpoint) Initialize(
 		responseData, err := json.Marshal(response)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(
+				ServerError: altshiftErrors.New(
 					fmt.Errorf("json marshal (response data): %w", err),
 					response,
 				),

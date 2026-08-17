@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Motmedel/utils_go/pkg/webauthn"
+	"github.com/altshiftab/utils_go/pkg/webauthn"
 )
 
 func TestNew(t *testing.T) {

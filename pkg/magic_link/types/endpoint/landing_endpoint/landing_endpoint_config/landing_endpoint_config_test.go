@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 )
 
 func TestNew(t *testing.T) {
@@ -80,7 +80,7 @@ func TestOptions(t *testing.T) {
 		t.Parallel()
 
 		invoked := false
-		config := New(WithPageBuilder(func(_ string, _ *motmedelHttpTypes.AcceptLanguage) ([]byte, error) {
+		config := New(WithPageBuilder(func(_ string, _ *altshiftHttpTypes.AcceptLanguage) ([]byte, error) {
 			invoked = true
 			return nil, nil
 		}))

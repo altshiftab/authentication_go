@@ -1,8 +1,8 @@
 package authorizer_request_parser_config
 
 import (
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor"
 )
 
 var DefaultTokenExtractor = token_cookie_extractor.New()

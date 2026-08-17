@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
 )
 
 func TestNew(t *testing.T) {

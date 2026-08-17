@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint/problem_detail_endpoint_config"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 )
 
 const (

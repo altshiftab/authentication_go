@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoEcdsa "github.com/Motmedel/utils_go/pkg/crypto/ecdsa"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	motmedelJwtToken "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 const (
@@ -28,7 +28,7 @@ const (
 
 var sessionManager *session_manager.Manager
 var idTokenAuthenticator *authenticator.AuthenticatorWithKeyHandler
-var idTokenMethod *motmedelCryptoEcdsa.Method
+var idTokenMethod *altshiftCryptoEcdsa.Method
 
 func TestMain(m *testing.M) {
 	sessionManager, idTokenAuthenticator, _, idTokenMethod = ssoTesting.SetUp()
@@ -137,7 +137,7 @@ func TestEndpoint(t *testing.T) {
 					}
 					tokenPayload["email_address"] = tokenEmailAddress
 
-					token := motmedelJwtToken.Token{
+					token := altshiftJwtToken.Token{
 						Header: map[string]any{
 							"typ": "JWT",
 							"kid": ssoTesting.KeyId,
@@ -203,7 +203,7 @@ func TestInitialize(t *testing.T) {
 			}
 
 			err = testEndpoint.Initialize(testCase.idTokenAuthenticator, testCase.sessionManager)
-			motmedelTestingCmp.CompareErr(t, err, testCase.wantErr)
+			altshiftTestingCmp.CompareErr(t, err, testCase.wantErr)
 		})
 	}
 }
@@ -225,7 +225,7 @@ func TestEndpointIdTokenReuse(t *testing.T) {
 	httpServer := httptest.NewServer(mux)
 	defer httpServer.Close()
 
-	token := motmedelJwtToken.Token{
+	token := altshiftJwtToken.Token{
 		Header: map[string]any{
 			"typ": "JWT",
 			"kid": ssoTesting.KeyId,

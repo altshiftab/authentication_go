@@ -6,27 +6,27 @@ import (
 	"net/url"
 	"strings"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	"github.com/Motmedel/utils_go/pkg/http/types/accept_language"
-	authenticatorPkg "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/setting"
-	motmedelReflect "github.com/Motmedel/utils_go/pkg/reflect"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/landing_endpoint/landing_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/validate_endpoint"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/accept_language"
+	authenticatorPkg "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
+	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 type Endpoint struct {
@@ -35,13 +35,13 @@ type Endpoint struct {
 	ContentSecurityPolicy string
 }
 
-func (e *Endpoint) Initialize(verifier motmedelCryptoInterfaces.NamedVerifier) error {
+func (e *Endpoint) Initialize(verifier altshiftCryptoInterfaces.NamedVerifier) error {
 	if utils.IsNil(verifier) {
-		return motmedelErrors.NewWithTrace(nil_error.New("verifier"))
+		return altshiftErrors.NewWithTrace(nil_error.New("verifier"))
 	}
 
 	if e.PageBuilder == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("page builder"))
+		return altshiftErrors.NewWithTrace(nil_error.New("page builder"))
 	}
 
 	e.UrlParser = adapter.New(
@@ -73,7 +73,7 @@ func (e *Endpoint) Initialize(verifier motmedelCryptoInterfaces.NamedVerifier) e
 
 		formAction := (&url.URL{Path: request.URL.Path, RawQuery: request.URL.RawQuery}).String()
 
-		var acceptLanguage *motmedelHttpTypes.AcceptLanguage
+		var acceptLanguage *altshiftHttpTypes.AcceptLanguage
 		if raw := strings.TrimSpace(request.Header.Get("Accept-Language")); raw != "" {
 			if parsed, parseErr := accept_language.Parse([]byte(raw)); parseErr == nil {
 				acceptLanguage = parsed
@@ -83,7 +83,7 @@ func (e *Endpoint) Initialize(verifier motmedelCryptoInterfaces.NamedVerifier) e
 		body, err := e.PageBuilder(formAction, acceptLanguage)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("page builder: %w", err)),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("page builder: %w", err)),
 			}
 		}
 
@@ -121,7 +121,7 @@ func New(options ...landing_endpoint_config.Option) *Endpoint {
 				Method: http.MethodGet,
 				Public: true,
 				Hint: &endpoint.Hint{
-					UrlInputType: motmedelReflect.TypeOf[validate_endpoint.UrlInput](),
+					UrlInputType: altshiftReflect.TypeOf[validate_endpoint.UrlInput](),
 				},
 			},
 		},

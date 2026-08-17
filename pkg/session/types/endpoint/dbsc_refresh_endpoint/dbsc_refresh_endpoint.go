@@ -9,20 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	motmedelDatabase "github.com/Motmedel/utils_go/pkg/database"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	motmedelHttpErrors "github.com/Motmedel/utils_go/pkg/http/errors"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/http/utils"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/session"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
@@ -30,6 +16,20 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_refresh_endpoint/dbsc_refresh_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_instructions"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	altshiftHttpErrors "github.com/altshiftab/utils_go/pkg/http/errors"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/http/utils"
 )
 
 // Use centralized DBSC header constants from the session package.
@@ -56,7 +56,7 @@ func endedSessionResponse() (*muxResponse.Response, *response_error.ResponseErro
 	body, err := json.Marshal(session_instructions.Ended())
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("json marshal (session instructions): %w", err)),
+			ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("json marshal (session instructions): %w", err)),
 		}
 	}
 
@@ -75,16 +75,16 @@ func (e *Endpoint) Initialize(
 	sessionManager *session_manager.Manager,
 ) error {
 	if dbscSessionResponseProcessor == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("dbsc session response processor"))
+		return altshiftErrors.NewWithTrace(nil_error.New("dbsc session response processor"))
 	}
 
 	if sessionManager == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("session manager"))
+		return altshiftErrors.NewWithTrace(nil_error.New("session manager"))
 	}
 
 	db := dbscSessionResponseProcessor.Db
 	if db == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("dbsc session response processor sql db"))
+		return altshiftErrors.NewWithTrace(nil_error.New("dbsc session response processor sql db"))
 	}
 
 	e.Handler = func(request *http.Request, _ []byte) (*muxResponse.Response, *response_error.ResponseError) {
@@ -93,14 +93,14 @@ func (e *Endpoint) Initialize(
 		requestHeader := request.Header
 		if requestHeader == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("http request header")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("http request header")),
 			}
 		}
 
 		sessionId, err := utils.GetSingleHeader(sessionIdHeaderName, requestHeader)
 		if err != nil {
-			wrappedErr := motmedelErrors.New(fmt.Errorf("get single header: %w", err), sessionIdHeaderName)
-			if errors.Is(err, motmedelHttpErrors.ErrMissingHeader) || errors.Is(err, motmedelHttpErrors.ErrMultipleHeaderValues) {
+			wrappedErr := altshiftErrors.New(fmt.Errorf("get single header: %w", err), sessionIdHeaderName)
+			if errors.Is(err, altshiftHttpErrors.ErrMissingHeader) || errors.Is(err, altshiftHttpErrors.ErrMultipleHeaderValues) {
 				return nil, &response_error.ResponseError{
 					ClientError: wrappedErr,
 					ProblemDetail: problem_detail.New(
@@ -114,7 +114,7 @@ func (e *Endpoint) Initialize(
 		}
 		if sessionId == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("session id")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("session id")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The session id is empty."),
@@ -126,9 +126,9 @@ func (e *Endpoint) Initialize(
 		authenticationId := sessionId
 
 		sessionResponseValue, err := utils.GetSingleHeader(sessionResponseHeaderName, requestHeader)
-		if err != nil && !errors.Is(err, motmedelHttpErrors.ErrMissingHeader) {
-			wrappedErr := motmedelErrors.New(fmt.Errorf("get single header: %w", err), sessionResponseHeaderName)
-			if errors.Is(err, motmedelHttpErrors.ErrMultipleHeaderValues) {
+		if err != nil && !errors.Is(err, altshiftHttpErrors.ErrMissingHeader) {
+			wrappedErr := altshiftErrors.New(fmt.Errorf("get single header: %w", err), sessionResponseHeaderName)
+			if errors.Is(err, altshiftHttpErrors.ErrMultipleHeaderValues) {
 				return nil, &response_error.ResponseError{
 					ClientError: wrappedErr,
 					ProblemDetail: problem_detail.New(
@@ -150,12 +150,12 @@ func (e *Endpoint) Initialize(
 				}
 			}
 
-			insertDbCtx, insertDbCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+			insertDbCtx, insertDbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 			defer insertDbCtxCancel()
 
 			if err := e.insertDbscChallenge(insertDbCtx, challenge, authenticationId, e.ChallengeDuration, db); err != nil {
 				return nil, &response_error.ResponseError{
-					ServerError: motmedelErrors.New(
+					ServerError: altshiftErrors.New(
 						fmt.Errorf("insert dbsc challenge: %w", err),
 						challenge, authenticationId,
 					),
@@ -173,12 +173,12 @@ func (e *Endpoint) Initialize(
 			}, nil
 		}
 
-		selectDbCtx, selectDbCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+		selectDbCtx, selectDbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer selectDbCtxCancel()
 
 		authentication, err := e.selectRefreshAuthentication(selectDbCtx, authenticationId, db)
 		if err != nil {
-			wrappedErr := motmedelErrors.New(fmt.Errorf("select refresh authentication: %w", err), authenticationId)
+			wrappedErr := altshiftErrors.New(fmt.Errorf("select refresh authentication: %w", err), authenticationId)
 			if errors.Is(err, sql.ErrNoRows) {
 				return endedSessionResponse()
 			}
@@ -186,7 +186,7 @@ func (e *Endpoint) Initialize(
 		}
 		if authentication == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication")),
 			}
 		}
 

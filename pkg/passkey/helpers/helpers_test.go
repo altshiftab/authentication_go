@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"testing"
 
-	webauthnErrors "github.com/Motmedel/utils_go/pkg/webauthn/errors"
 	passkeyProviderErrors "github.com/altshiftab/authentication_go/pkg/passkey/errors"
+	webauthnErrors "github.com/altshiftab/utils_go/pkg/webauthn/errors"
 )
 
 func TestGenerateChallenge(t *testing.T) {

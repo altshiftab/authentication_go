@@ -10,35 +10,35 @@ import (
 	"net/url"
 	"time"
 
-	motmedelDatabase "github.com/Motmedel/utils_go/pkg/database"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/url_allower"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/url_allower/url_allower_config"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	motmedelNet "github.com/Motmedel/utils_go/pkg/net"
-	motmedelOauth2 "github.com/Motmedel/utils_go/pkg/oauth2"
-	"github.com/Motmedel/utils_go/pkg/oauth2/types/auth_code_option"
-	motmedelOauth2Config "github.com/Motmedel/utils_go/pkg/oauth2/types/config"
-	motmedelReflect "github.com/Motmedel/utils_go/pkg/reflect"
 	"github.com/altshiftab/authentication_go/pkg/database"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/login_endpoint/login_endpoint_config"
+	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/url_allower"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/url_allower/url_allower_config"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	altshiftNet "github.com/altshiftab/utils_go/pkg/net"
+	altshiftOauth2 "github.com/altshiftab/utils_go/pkg/oauth2"
+	"github.com/altshiftab/utils_go/pkg/oauth2/types/auth_code_option"
+	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
+	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 )
 
 func makeCodeVerifier() (string, error) {
 	challenge := make([]byte, 96)
 	if _, err := rand.Read(challenge); err != nil {
-		return "", motmedelErrors.NewWithTrace(fmt.Errorf("rand read: %w", err))
+		return "", altshiftErrors.NewWithTrace(fmt.Errorf("rand read: %w", err))
 	}
 
 	return base64.RawURLEncoding.EncodeToString(challenge), nil
@@ -47,7 +47,7 @@ func makeCodeVerifier() (string, error) {
 func makeState() (string, error) {
 	state := make([]byte, 32)
 	if _, err := rand.Read(state); err != nil {
-		return "", motmedelErrors.NewWithTrace(fmt.Errorf("rand read: %w", err))
+		return "", altshiftErrors.NewWithTrace(fmt.Errorf("rand read: %w", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(state), nil
 }
@@ -72,23 +72,23 @@ type Endpoint struct {
 	RequestAuthenticationMethodReferences bool
 }
 
-func (e *Endpoint) Initialize(domain string, oauthConfig *motmedelOauth2Config.Config, db *sql.DB) error {
+func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.Config, db *sql.DB) error {
 	if domain == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("domain"))
+		return altshiftErrors.NewWithTrace(empty_error.New("domain"))
 	}
 
 	if oauthConfig == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("oauth config"))
+		return altshiftErrors.NewWithTrace(nil_error.New("oauth config"))
 	}
 
 	if db == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("sql db"))
+		return altshiftErrors.NewWithTrace(nil_error.New("sql db"))
 	}
 
 	e.UrlParser = adapter.New(
 		url_allower.New(
 			query_extractor.New[*UrlInput](),
-			url_allower_config.WithAllowLocalhost(motmedelNet.IsLocalhost(domain)),
+			url_allower_config.WithAllowLocalhost(altshiftNet.IsLocalhost(domain)),
 			url_allower_config.WithAllowedRegisteredDomains([]string{domain}),
 		),
 	)
@@ -105,7 +105,7 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *motmedelOauth2Config.C
 		if redirectUrlString == "" {
 			// NOTE: Should be impossible. Should be covered by `url_allower`.
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("redirect url")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("redirect url")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The redirect URL is empty."),
@@ -116,28 +116,28 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *motmedelOauth2Config.C
 		codeVerifier, err := e.makeCodeVerifier()
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("make code verifier: %w", err)),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("make code verifier: %w", err)),
 			}
 		}
 		if codeVerifier == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("code verifier")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("code verifier")),
 			}
 		}
 
 		state, err := e.makeState()
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("make state: %w", err)),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("make state: %w", err)),
 			}
 		}
 		if state == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("state")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("state")),
 			}
 		}
 
-		dbCtx, dbCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+		dbCtx, dbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbCtxCancel()
 
 		oauthFlow, err := e.insertOauthFlow(
@@ -150,28 +150,28 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *motmedelOauth2Config.C
 		)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(fmt.Errorf("add oauth flow: %w", err), state, codeVerifier, redirectUrlString),
+				ServerError: altshiftErrors.New(fmt.Errorf("add oauth flow: %w", err), state, codeVerifier, redirectUrlString),
 			}
 		}
 		if oauthFlow == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("oauth flow")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("oauth flow")),
 			}
 		}
 		oauthFlowId := oauthFlow.Id
 		if oauthFlowId == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("oauth flow id")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("oauth flow id")),
 			}
 		}
 		oauthFlowExpiresAt := oauthFlow.ExpiresAt
 		if oauthFlowExpiresAt == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("oauth flow expires at")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("oauth flow expires at")),
 			}
 		}
 
-		authCodeOptions := motmedelOauth2.S256ChallengeOption(codeVerifier)
+		authCodeOptions := altshiftOauth2.S256ChallengeOption(codeVerifier)
 		if e.RequestAuthenticationMethodReferences {
 			authCodeOptions = append(
 				authCodeOptions,
@@ -217,11 +217,11 @@ const authenticationMethodReferencesClaimsParameter = `{"id_token":{"amr":null}}
 
 func New(path, callbackPath string, options ...login_endpoint_config.Option) (*Endpoint, error) {
 	if path == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("path"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("path"))
 	}
 
 	if callbackPath == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("callback path"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("callback path"))
 	}
 
 	config := login_endpoint_config.New(options...)
@@ -232,7 +232,7 @@ func New(path, callbackPath string, options ...login_endpoint_config.Option) (*E
 				Method: http.MethodGet,
 				Public: true,
 				Hint: &endpoint.Hint{
-					InputType: motmedelReflect.TypeOf[UrlInput](),
+					InputType: altshiftReflect.TypeOf[UrlInput](),
 				},
 			},
 		},

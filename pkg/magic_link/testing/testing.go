@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"sync"
 
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	"github.com/Motmedel/utils_go/pkg/mail/types/message"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	"github.com/altshiftab/utils_go/pkg/mail/types/message"
 )
 
 const (
@@ -24,12 +24,12 @@ const (
 	DefaultNonce = "00000000-0000-4000-8000-000000000000"
 )
 
-func NewSigner() *motmedelCryptoEddsa.Method {
+func NewSigner() *altshiftCryptoEddsa.Method {
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		panic(fmt.Errorf("ed25519 generate key: %w", err))
 	}
-	return &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	return &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 }
 
 func MustParseUrl(raw string) *url.URL {
@@ -44,7 +44,7 @@ func MustFromAddress() *mail.Address {
 	return &mail.Address{Address: FromAddress}
 }
 
-func SetUp() (*session_manager.Manager, *motmedelCryptoEddsa.Method) {
+func SetUp() (*session_manager.Manager, *altshiftCryptoEddsa.Method) {
 	sessionManager, _, _, _ := ssoTesting.SetUp()
 	signer := NewSigner()
 	return sessionManager, signer

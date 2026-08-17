@@ -9,28 +9,28 @@ import (
 	"os"
 	"testing"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader/body_setting"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/cors_configurator"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
 	loginTesting "github.com/altshiftab/authentication_go/pkg/session/testing"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/end_endpoint/end_endpoint_config"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader/body_setting"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/cors_configurator"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 var defaultSessionCookieString string
 var defaultAuthorizationRequestParser *authorizer_request_parser.Parser
 
 var db *sql.DB
-var method motmedelCryptoInterfaces.Method
+var method altshiftCryptoInterfaces.Method
 
 func TestMain(m *testing.M) {
 
@@ -170,12 +170,12 @@ func TestEndpoint_Initialize(t *testing.T) {
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	opts := []motmedelTestingCmp.Option{
-		motmedelTestingCmp.IgnoreFields(
+	opts := []altshiftTestingCmp.Option{
+		altshiftTestingCmp.IgnoreFields(
 			Endpoint{},
 			"updateAuthenticationWithEnded",
 		),
-		motmedelTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
+		altshiftTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
 	}
 
 	type args struct {
@@ -220,7 +220,7 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := New(tt.args.options...)
-			if diff := motmedelTestingCmp.Diff(tt.want, got, opts...); diff != "" {
+			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
 			}
 		})

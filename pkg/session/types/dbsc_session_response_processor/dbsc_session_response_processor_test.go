@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	motmedelSqlTesting "github.com/Motmedel/utils_go/pkg/database/sql/testing"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
 	"github.com/altshiftab/authentication_go/pkg/session/types/dbsc_session_response_processor/dbsc_session_response_processor_config"
+	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
 )
 
 // A DBSC response JWT (typ dbsc+jwt) self-signed with the EC key embedded in its own key claim,
@@ -36,7 +36,7 @@ func newProcessor(t *testing.T, popDbscChallenge func(ctx context.Context, chall
 
 	processor, err := New(
 		validAudience,
-		motmedelSqlTesting.NewDb(),
+		altshiftSqlTesting.NewDb(),
 		dbsc_session_response_processor_config.WithPopDbscChallenge(popDbscChallenge),
 	)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestNew(t *testing.T) {
 	t.Run("empty audience", func(t *testing.T) {
 		t.Parallel()
 
-		if _, err := New("", motmedelSqlTesting.NewDb()); err == nil {
+		if _, err := New("", altshiftSqlTesting.NewDb()); err == nil {
 			t.Errorf("expected error")
 		}
 	})
@@ -71,7 +71,7 @@ func TestNew(t *testing.T) {
 	t.Run("valid", func(t *testing.T) {
 		t.Parallel()
 
-		processor, err := New(validAudience, motmedelSqlTesting.NewDb())
+		processor, err := New(validAudience, altshiftSqlTesting.NewDb())
 		if err != nil {
 			t.Fatalf("new: %v", err)
 		}
@@ -151,7 +151,7 @@ func TestProcess(t *testing.T) {
 
 		processor, err := New(
 			"https://other.example.com",
-			motmedelSqlTesting.NewDb(),
+			altshiftSqlTesting.NewDb(),
 			dbsc_session_response_processor_config.WithPopDbscChallenge(popChallenge),
 		)
 		if err != nil {

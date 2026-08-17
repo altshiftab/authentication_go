@@ -6,25 +6,25 @@ import (
 	"net/http"
 	"slices"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/jwt_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/interfaces/comparer"
-	jwtAuthenticator "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/session_claims_validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/setting"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/jwt_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/interfaces/comparer"
+	jwtAuthenticator "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/session_claims_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 type Parser struct {
@@ -34,7 +34,7 @@ type Parser struct {
 	AllowedTenantId string
 	SuperAdminRoles []string
 
-	verifier motmedelCryptoInterfaces.NamedVerifier
+	verifier altshiftCryptoInterfaces.NamedVerifier
 }
 
 func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_error.ResponseError) {
@@ -44,7 +44,7 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 	}
 	if authenticatedJwtToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated jwt token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated jwt token")),
 		}
 	}
 
@@ -52,19 +52,19 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 	sessionClaims, err := session_claims.New(payload)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("session claims new: %w", err), payload),
+			ServerError: altshiftErrors.New(fmt.Errorf("session claims new: %w", err), payload),
 		}
 	}
 	if sessionClaims == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session claims")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session claims")),
 		}
 	}
 
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("session token new from session claims: %w", err), sessionClaims)
-		if errors.Is(err, motmedelErrors.ErrParseError) {
+		wrappedErr := altshiftErrors.New(fmt.Errorf("session token new from session claims: %w", err), sessionClaims)
+		if errors.Is(err, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
 				ProblemDetail: problem_detail.New(
@@ -77,7 +77,7 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 	}
 	if sessionToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token")),
 		}
 	}
 
@@ -125,26 +125,26 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 	return sessionToken, nil
 }
 
-func (p *Parser) Verifier() motmedelCryptoInterfaces.NamedVerifier {
+func (p *Parser) Verifier() altshiftCryptoInterfaces.NamedVerifier {
 	return p.verifier
 }
 
 func New(
-	verifier motmedelCryptoInterfaces.NamedVerifier,
+	verifier altshiftCryptoInterfaces.NamedVerifier,
 	issuer string,
 	audience string,
 	options ...authorizer_request_parser_config.Option,
 ) (*Parser, error) {
 	if utils.IsNil(verifier) {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("verifier"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("verifier"))
 	}
 
 	if issuer == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("issuer"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("issuer"))
 	}
 
 	if audience == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("audience"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("audience"))
 	}
 
 	config := authorizer_request_parser_config.New(options...)

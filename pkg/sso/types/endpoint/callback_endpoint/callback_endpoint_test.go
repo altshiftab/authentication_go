@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	motmedelOauth2Config "github.com/Motmedel/utils_go/pkg/oauth2/types/config"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	"github.com/altshiftab/authentication_go/pkg/sso/errors/oauth_error"
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 
 var sessionManager *session_manager.Manager
 var idTokenAuthenticator *authenticator.AuthenticatorWithKeyHandler
-var oauthConfig *motmedelOauth2Config.Config
+var oauthConfig *altshiftOauth2Config.Config
 
 func TestMain(m *testing.M) {
 	sessionManager, idTokenAuthenticator, oauthConfig, _ = testing2.SetUp()

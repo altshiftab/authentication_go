@@ -9,24 +9,24 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	"github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor/token_cookie_extractor_config"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claim_strings"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/numeric_date"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	"github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor/token_cookie_extractor_config"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claim_strings"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 const (
@@ -39,9 +39,9 @@ const (
 	role             = "test-role"
 )
 
-func makeCookie(signer motmedelCryptoInterfaces.NamedSigner) string {
+func makeCookie(signer altshiftCryptoInterfaces.NamedSigner) string {
 	if utils.IsNil(signer) {
-		panic(motmedelErrors.NewWithTrace(nil_error.New("signer")))
+		panic(altshiftErrors.NewWithTrace(nil_error.New("signer")))
 	}
 
 	exp := time.Now().Add(time.Hour)
@@ -64,20 +64,20 @@ func makeCookie(signer motmedelCryptoInterfaces.NamedSigner) string {
 	}
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
-		panic(motmedelErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims))
+		panic(altshiftErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims))
 	}
 	if sessionToken == nil {
-		panic(motmedelErrors.NewWithTrace(nil_error.New("session token")))
+		panic(altshiftErrors.NewWithTrace(nil_error.New("session token")))
 	}
 
 	sessionTokenString, err := sessionToken.Encode(signer)
 	if err != nil {
-		panic(motmedelErrors.New(fmt.Errorf("new session token encode: %w", err), sessionToken, signer))
+		panic(altshiftErrors.New(fmt.Errorf("new session token encode: %w", err), sessionToken, signer))
 	}
 
 	sessionCookie, err := session_cookie.New(sessionTokenString, exp, token_cookie_extractor_config.DefaultName, "example.com")
 	if err != nil {
-		panic(motmedelErrors.New(fmt.Errorf("new session cookie: %w", err), sessionTokenString, exp, token_cookie_extractor_config.DefaultName, domain))
+		panic(altshiftErrors.New(fmt.Errorf("new session cookie: %w", err), sessionTokenString, exp, token_cookie_extractor_config.DefaultName, domain))
 	}
 
 	return sessionCookie.String()
@@ -89,10 +89,10 @@ func TestParser_Parse(t *testing.T) {
 		t.Fatalf("ed25519 generate key: %v", err)
 	}
 
-	method := &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	method := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 
-	problemDetailOpts := []motmedelTestingCmp.Option{
-		motmedelTestingCmp.IgnoreFields(problem_detail.Detail{}, "Type", "Instance"),
+	problemDetailOpts := []altshiftTestingCmp.Option{
+		altshiftTestingCmp.IgnoreFields(problem_detail.Detail{}, "Type", "Instance"),
 	}
 
 	testCases := []struct {
@@ -185,14 +185,14 @@ func TestParser_Parse(t *testing.T) {
 			}
 
 			if gotResponseError != nil {
-				motmedelTestingCmp.CompareErr(t, gotResponseError.ServerError, testCase.wantServerError)
-				motmedelTestingCmp.CompareErr(t, gotResponseError.ClientError, testCase.wantClientError)
+				altshiftTestingCmp.CompareErr(t, gotResponseError.ServerError, testCase.wantServerError)
+				altshiftTestingCmp.CompareErr(t, gotResponseError.ClientError, testCase.wantClientError)
 
 				if testCase.wantProblemDetail != nil {
 					testCase.wantProblemDetail.Title = http.StatusText(testCase.wantProblemDetail.Status)
 				}
 
-				if diff := motmedelTestingCmp.Diff(gotResponseError.ProblemDetail, testCase.wantProblemDetail, problemDetailOpts...); diff != "" {
+				if diff := altshiftTestingCmp.Diff(gotResponseError.ProblemDetail, testCase.wantProblemDetail, problemDetailOpts...); diff != "" {
 					t.Errorf("response error problem detail mismatch (-expected +got):\n%s", diff)
 				}
 			}
@@ -208,13 +208,13 @@ func TestParser_Verifier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ed25519 generate key: %v", err)
 	}
-	method := &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	method := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 
 	// The parser is constructed via New (not by setting the field directly) so
 	// this also guards against the constructor dropping the verifier: New is
 	// given a verifier, and Verifier() must return that same verifier.
 	type args struct {
-		verifier motmedelCryptoInterfaces.NamedVerifier
+		verifier altshiftCryptoInterfaces.NamedVerifier
 		issuer   string
 		audience string
 		options  []authorizer_request_parser_config.Option
@@ -222,7 +222,7 @@ func TestParser_Verifier(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want motmedelCryptoInterfaces.NamedVerifier
+		want altshiftCryptoInterfaces.NamedVerifier
 	}{
 		{
 			name: "verifier passed to New is returned by the getter",
@@ -252,14 +252,14 @@ func TestNew(t *testing.T) {
 		panic(fmt.Errorf("ed25519 generate key: %w", err))
 	}
 
-	validMethod := &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	validMethod := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 	const (
 		audience = "test-audience"
 		issuer   = "test-issuer"
 	)
 
-	opts := []motmedelTestingCmp.Option{
-		motmedelTestingCmp.IgnoreFields(Parser{}, "verifier", "JwtExtractor"),
+	opts := []altshiftTestingCmp.Option{
+		altshiftTestingCmp.IgnoreFields(Parser{}, "verifier", "JwtExtractor"),
 	}
 
 	type args struct {
@@ -306,10 +306,10 @@ func TestNew(t *testing.T) {
 			got, gotErr := New(testCase.args.verifier, testCase.args.issuer, testCase.args.audience, testCase.args.options...)
 
 			if gotErr != nil {
-				motmedelTestingCmp.CompareErr(t, gotErr, testCase.wantErr)
+				altshiftTestingCmp.CompareErr(t, gotErr, testCase.wantErr)
 			}
 
-			if diff := motmedelTestingCmp.Diff(testCase.want, got, opts...); diff != "" {
+			if diff := altshiftTestingCmp.Diff(testCase.want, got, opts...); diff != "" {
 				t.Errorf("parser mismatch (-expected +got):\n%s", diff)
 			}
 		})

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"html/template"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelHttpUtils "github.com/Motmedel/utils_go/pkg/http/utils"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftHttpUtils "github.com/altshiftab/utils_go/pkg/http/utils"
 )
 
 // DefaultBackLabel is the default text for the back-to-sign-in control.
@@ -19,7 +19,7 @@ const DefaultBackLabel = "Back to sign in"
 // application/problem+json clients still receive a serialized problem document,
 // while browsers (which list text/html explicitly and at the highest priority)
 // receive HTML.
-var htmlMediaRanges = []*motmedelHttpTypes.ServerMediaRange{
+var htmlMediaRanges = []*altshiftHttpTypes.ServerMediaRange{
 	{Type: "application", Subtype: "problem+json"},
 	{Type: "application", Subtype: "json"},
 	{Type: "application", Subtype: "problem+xml"},
@@ -65,19 +65,19 @@ func HtmlConverter(backUrl, label string) response_error.ProblemDetailConverterF
 		label = DefaultBackLabel
 	}
 
-	return func(detail *problem_detail.Detail, negotiation *motmedelHttpTypes.ContentNegotiation) ([]byte, string, error) {
+	return func(detail *problem_detail.Detail, negotiation *altshiftHttpTypes.ContentNegotiation) ([]byte, string, error) {
 		if detail == nil {
 			return nil, "", nil
 		}
 
 		if negotiation != nil && negotiation.Accept != nil {
-			match := motmedelHttpUtils.GetMatchingAccept(negotiation.Accept.GetPriorityOrderedEncodings(), htmlMediaRanges)
+			match := altshiftHttpUtils.GetMatchingAccept(negotiation.Accept.GetPriorityOrderedEncodings(), htmlMediaRanges)
 			if match != nil && match.GetFullType(true) == "text/html" {
 				data := problemHtmlData{Title: detail.Title, Detail: detail.Detail, BackUrl: backUrl, BackLabel: label}
 
 				var buffer bytes.Buffer
 				if err := problemHtmlTemplate.Execute(&buffer, data); err != nil {
-					return nil, "", motmedelErrors.NewWithTrace(fmt.Errorf("problem html template execute: %w", err))
+					return nil, "", altshiftErrors.NewWithTrace(fmt.Errorf("problem html template execute: %w", err))
 				}
 
 				return buffer.Bytes(), "text/html; charset=utf-8", nil

@@ -13,14 +13,6 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelSqlTesting "github.com/Motmedel/utils_go/pkg/database/sql/testing"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claim_strings"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/numeric_date"
 	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
@@ -28,6 +20,14 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claim_strings"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
 )
 
 const (
@@ -38,13 +38,13 @@ const (
 	testAuthId       = "test-authentication-id"
 )
 
-func newTestSigner(t *testing.T) *motmedelCryptoEddsa.Method {
+func newTestSigner(t *testing.T) *altshiftCryptoEddsa.Method {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("ed25519 generate key: %v", err)
 	}
-	return &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	return &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 }
 
 type stubs struct {
@@ -57,10 +57,10 @@ type stubs struct {
 	insertedAuth   int
 }
 
-func newManager(t *testing.T, signer motmedelCryptoInterfaces.NamedSigner, s *stubs) *Manager {
+func newManager(t *testing.T, signer altshiftCryptoInterfaces.NamedSigner, s *stubs) *Manager {
 	t.Helper()
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 
 	m, err := New(
 		signer,
@@ -126,12 +126,12 @@ func TestNew(t *testing.T) {
 	t.Parallel()
 
 	signer := newTestSigner(t)
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	defer db.Close()
 
 	tests := []struct {
 		name         string
-		signer       motmedelCryptoInterfaces.NamedSigner
+		signer       altshiftCryptoInterfaces.NamedSigner
 		db           *sql.DB
 		issuer       string
 		cookieDomain string

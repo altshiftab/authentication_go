@@ -3,9 +3,9 @@ package sign_in_failed_endpoint
 import (
 	"net/http"
 
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint/problem_detail_endpoint_config"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
 )
 
 // A catch-all for unexpected sign-in failures, including provider errors that

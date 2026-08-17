@@ -8,29 +8,29 @@ import (
 	"net/http"
 	"strings"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader/body_setting"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_header_extractor/token_header_extractor_config"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	motmedelJws "github.com/Motmedel/utils_go/pkg/json/jose/jws"
-	authenticatorPkg "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoErrors "github.com/altshiftab/authentication_go/pkg/sso/errors"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/id_token_endpoint/id_token_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader/body_setting"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor/token_header_extractor_config"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	altshiftJws "github.com/altshiftab/utils_go/pkg/json/jose/jws"
+	authenticatorPkg "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
 )
 
 type Endpoint[T provider_claims.ProviderClaims] struct {
@@ -46,11 +46,11 @@ func (e *Endpoint[T]) Initialize(
 	sessionManager *session_manager.Manager,
 ) error {
 	if idTokenAuthenticator == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("id token authenticator"))
+		return altshiftErrors.NewWithTrace(nil_error.New("id token authenticator"))
 	}
 
 	if sessionManager == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("session manager"))
+		return altshiftErrors.NewWithTrace(nil_error.New("session manager"))
 	}
 
 	e.Handler = func(request *http.Request, _ []byte) (*muxResponse.Response, *response_error.ResponseError) {
@@ -63,7 +63,7 @@ func (e *Endpoint[T]) Initialize(
 
 		if idToken == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("id token")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("id token")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The id token is empty."),
@@ -73,8 +73,8 @@ func (e *Endpoint[T]) Initialize(
 
 		authenticatedIdToken, err := idTokenAuthenticator.Authenticate(ctx, idToken)
 		if err != nil {
-			wrappedErr := motmedelErrors.New(fmt.Errorf("authenticator with key handler authenticate: %w", err), idToken)
-			if motmedelErrors.IsAny(err, motmedelErrors.ErrParseError, motmedelErrors.ErrValidationError, motmedelErrors.ErrVerificationError) {
+			wrappedErr := altshiftErrors.New(fmt.Errorf("authenticator with key handler authenticate: %w", err), idToken)
+			if altshiftErrors.IsAny(err, altshiftErrors.ErrParseError, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError) {
 				return nil, &response_error.ResponseError{
 					ClientError: wrappedErr,
 					ProblemDetail: problem_detail.New(
@@ -87,26 +87,26 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if authenticatedIdToken == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated id token")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated id token")),
 			}
 		}
 
-		_, idTokenPayload, _, err := motmedelJws.Parse(idToken)
+		_, idTokenPayload, _, err := altshiftJws.Parse(idToken)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("jwt parse: %w", err), idToken),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("jwt parse: %w", err), idToken),
 			}
 		}
 		if len(idTokenPayload) == 0 {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("id token payload")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("id token payload")),
 			}
 		}
 
 		var providerClaims T
 		if err := json.Unmarshal(idTokenPayload, &providerClaims); err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(
+				ServerError: altshiftErrors.NewWithTrace(
 					fmt.Errorf("json unmarshal (id token payload): %w", err),
 					idTokenPayload,
 				),
@@ -115,7 +115,7 @@ func (e *Endpoint[T]) Initialize(
 
 		emailAddress, err := providerClaims.VerifiedEmailAddress()
 		if err != nil {
-			wrappedErr := motmedelErrors.New(
+			wrappedErr := altshiftErrors.New(
 				fmt.Errorf("provider claims verified email address: %w", err),
 				providerClaims,
 			)
@@ -131,7 +131,7 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if emailAddress == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("email address")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("email address")),
 			}
 		}
 
@@ -143,7 +143,7 @@ func (e *Endpoint[T]) Initialize(
 		}
 		if response == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("response")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
 			}
 		}
 
@@ -156,7 +156,7 @@ func (e *Endpoint[T]) Initialize(
 
 func New[T provider_claims.ProviderClaims](path string, options ...id_token_endpoint_config.Option) (*Endpoint[T], error) {
 	if path == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("path"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("path"))
 	}
 
 	return &Endpoint[T]{

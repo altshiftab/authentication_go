@@ -6,25 +6,25 @@ import (
 	"fmt"
 	"net/http"
 
-	motmedelDatabase "github.com/Motmedel/utils_go/pkg/database"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader/body_setting"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/cors_configurator"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxResponseError "github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/end_endpoint/end_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader/body_setting"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/cors_configurator"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxResponseError "github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 )
 
 type Endpoint struct {
@@ -34,15 +34,15 @@ type Endpoint struct {
 
 func (e *Endpoint) Initialize(authorizerRequestParser *authorizer_request_parser.Parser, corsConfigurator *cors_configurator.Configurator, db *sql.DB) error {
 	if authorizerRequestParser == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("authorizer request parser"))
+		return altshiftErrors.NewWithTrace(nil_error.New("authorizer request parser"))
 	}
 
 	if corsConfigurator == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("cors configurator"))
+		return altshiftErrors.NewWithTrace(nil_error.New("cors configurator"))
 	}
 
 	if db == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("sql db"))
+		return altshiftErrors.NewWithTrace(nil_error.New("sql db"))
 	}
 
 	e.AuthenticationParser = adapter.New(authorizerRequestParser)
@@ -67,11 +67,11 @@ func (e *Endpoint) Initialize(authorizerRequestParser *authorizer_request_parser
 			}
 		}
 
-		dbCtx, dbCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+		dbCtx, dbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbCtxCancel()
 		if err := e.updateAuthenticationWithEnded(dbCtx, authenticationId, db); err != nil {
 			return nil, &muxResponseError.ResponseError{
-				ServerError: motmedelErrors.New(fmt.Errorf("update authentication with ended: %w", err), authenticationId),
+				ServerError: altshiftErrors.New(fmt.Errorf("update authentication with ended: %w", err), authenticationId),
 			}
 		}
 

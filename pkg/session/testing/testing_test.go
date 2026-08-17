@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor/token_cookie_extractor_config"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor/token_cookie_extractor_config"
 )
 
 func TestSetUp(t *testing.T) {

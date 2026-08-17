@@ -17,25 +17,6 @@ import (
 	"sync"
 	"time"
 
-	motmedelCryptoEcdsa "github.com/Motmedel/utils_go/pkg/crypto/ecdsa"
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	motmedelSqlTesting "github.com/Motmedel/utils_go/pkg/database/sql/testing"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	muxRespnose "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/http_context_extractor"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwk/types/key"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwk/types/key/ec"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwk/types/key_handler"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwk/types/key_set"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	motmedelJwtToken "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token"
-	motmedelLog "github.com/Motmedel/utils_go/pkg/log"
-	motmedelContextLogger "github.com/Motmedel/utils_go/pkg/log/context_logger"
-	motmedelOauth2Config "github.com/Motmedel/utils_go/pkg/oauth2/types/config"
-	motmedelOauth2Endpoint "github.com/Motmedel/utils_go/pkg/oauth2/types/endpoint"
 	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
@@ -44,6 +25,25 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	"github.com/altshiftab/authentication_go/pkg/sso/errors"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
+	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	muxRespnose "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwk/types/key"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwk/types/key/ec"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwk/types/key_handler"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwk/types/key_set"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
+	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
+	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
+	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
+	altshiftOauth2Endpoint "github.com/altshiftab/utils_go/pkg/oauth2/types/endpoint"
 )
 
 const (
@@ -104,16 +104,16 @@ func (c *ProviderClaims) VerifiedEmailAddress() (string, error) {
 	return c.EmailAddress, nil
 }
 
-func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandler, *motmedelOauth2Config.Config, *motmedelCryptoEcdsa.Method) {
+func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandler, *altshiftOauth2Config.Config, *altshiftCryptoEcdsa.Method) {
 	httpContextExtractor := http_context_extractor.New()
 	slog.SetDefault(
-		motmedelContextLogger.New(
+		altshiftContextLogger.New(
 			slog.NewJSONHandler(
 				os.Stdout,
 				&slog.HandlerOptions{Level: slog.LevelInfo},
 			),
-			&motmedelLog.ErrorContextExtractor{
-				ContextExtractors: []motmedelLog.ContextExtractor{
+			&altshiftLog.ErrorContextExtractor{
+				ContextExtractors: []altshiftLog.ContextExtractor{
 					httpContextExtractor,
 				},
 			},
@@ -125,9 +125,9 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 	if err != nil {
 		panic(fmt.Errorf("ed25519 generate key: %w", err))
 	}
-	sessionMethod := &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	sessionMethod := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 
-	db := motmedelSqlTesting.NewDb()
+	db := altshiftSqlTesting.NewDb()
 	var usedIdTokenHashes sync.Map
 	sessionManager, err := session_manager.New(
 		sessionMethod,
@@ -173,7 +173,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 		panic(fmt.Errorf("ecdsa generate key: %w", err))
 	}
 
-	idTokenMethod, err := motmedelCryptoEcdsa.New(ecdsaKey, &ecdsaKey.PublicKey)
+	idTokenMethod, err := altshiftCryptoEcdsa.New(ecdsaKey, &ecdsaKey.PublicKey)
 	if err != nil {
 		panic(fmt.Errorf("ecdsa new: %w", err))
 	}
@@ -229,7 +229,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 			Handler: func(request *http.Request, body []byte) (*muxRespnose.Response, *response_error.ResponseError) {
 				values, err := url.ParseQuery(string(body))
 				if err != nil {
-					panic(motmedelErrors.New(fmt.Errorf("url parse query: %w", err), body))
+					panic(altshiftErrors.New(fmt.Errorf("url parse query: %w", err), body))
 				}
 
 				inputCode := values.Get("code")
@@ -286,7 +286,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 							tokenPayload["organization"] = Organization
 						}
 
-						token := motmedelJwtToken.Token{
+						token := altshiftJwtToken.Token{
 							Header: map[string]any{
 								"typ": "JWT",
 								"kid": KeyId,
@@ -295,7 +295,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 						}
 						tokenString, err = token.Encode(idTokenMethod)
 						if err != nil {
-							panic(motmedelErrors.New(fmt.Errorf("token encode: %w", err), token, idTokenMethod))
+							panic(altshiftErrors.New(fmt.Errorf("token encode: %w", err), token, idTokenMethod))
 						}
 					}
 
@@ -305,7 +305,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 				responseData, err := json.Marshal(responseMap)
 				if err != nil {
 					return nil, &response_error.ResponseError{
-						ServerError: motmedelErrors.New(
+						ServerError: altshiftErrors.New(
 							fmt.Errorf("json marshal (response data): %w", err),
 							responseMap,
 						),
@@ -330,10 +330,10 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 		panic(fmt.Errorf("key handler new: %w", err))
 	}
 
-	oauthConfig := &motmedelOauth2Config.Config{
+	oauthConfig := &altshiftOauth2Config.Config{
 		ClientID:     "test-client",
 		ClientSecret: "test-secret",
-		Endpoint: motmedelOauth2Endpoint.Endpoint{
+		Endpoint: altshiftOauth2Endpoint.Endpoint{
 			TokenURL: auxHttpServer.URL + TokenPath,
 		},
 		Scopes: []string{"openid", "email"},

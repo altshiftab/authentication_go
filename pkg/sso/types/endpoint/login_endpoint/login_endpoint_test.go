@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	motmedelSqlTesting "github.com/Motmedel/utils_go/pkg/database/sql/testing"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelOauth2Config "github.com/Motmedel/utils_go/pkg/oauth2/types/config"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 const (
@@ -31,14 +31,14 @@ const (
 )
 
 var (
-	oauthConfig *motmedelOauth2Config.Config
+	oauthConfig *altshiftOauth2Config.Config
 	db          *sql.DB
 )
 
 func TestMain(m *testing.M) {
 	_, _, oauthConfig, _ = testing2.SetUp()
 
-	db = motmedelSqlTesting.NewDb()
+	db = altshiftSqlTesting.NewDb()
 
 	code := m.Run()
 	_ = db.Close()
@@ -210,7 +210,7 @@ func TestInitialize(t *testing.T) {
 	testCases := []struct {
 		name        string
 		domain      string
-		oauthConfig *motmedelOauth2Config.Config
+		oauthConfig *altshiftOauth2Config.Config
 		db          *sql.DB
 		wantErr     error
 	}{
@@ -254,7 +254,7 @@ func TestInitialize(t *testing.T) {
 			}
 
 			err = testEndpoint.Initialize(testCase.domain, testCase.oauthConfig, testCase.db)
-			motmedelTestingCmp.CompareErr(t, err, testCase.wantErr)
+			altshiftTestingCmp.CompareErr(t, err, testCase.wantErr)
 		})
 	}
 }

@@ -8,26 +8,6 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/Motmedel/utils_go/pkg/cose"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_loader/body_setting"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/body_parser"
-	bodyParserAdapter "github.com/Motmedel/utils_go/pkg/http/mux/types/body_parser/adapter"
-	jsonSchemaBodyParser "github.com/Motmedel/utils_go/pkg/http/mux/types/body_parser/json_schema_body_parser"
-	endpointPkg "github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	muxResponseError "github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/net/types/domain_parts"
-	"github.com/Motmedel/utils_go/pkg/utils"
-	"github.com/Motmedel/utils_go/pkg/webauthn"
-	webauthnTransport "github.com/Motmedel/utils_go/pkg/webauthn/transport"
 	passkeyProviderErrors "github.com/altshiftab/authentication_go/pkg/passkey/errors"
 	passkeyHelpers "github.com/altshiftab/authentication_go/pkg/passkey/helpers"
 	"github.com/altshiftab/authentication_go/pkg/passkey/helpers/login"
@@ -36,6 +16,26 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/passkey/helpers/registration"
 	registrationBodyInput "github.com/altshiftab/authentication_go/pkg/passkey/helpers/registration/types/body_input"
 	passkeyConfig "github.com/altshiftab/authentication_go/pkg/passkey/passkey_config"
+	"github.com/altshiftab/utils_go/pkg/cose"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader/body_setting"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_parser"
+	bodyParserAdapter "github.com/altshiftab/utils_go/pkg/http/mux/types/body_parser/adapter"
+	jsonSchemaBodyParser "github.com/altshiftab/utils_go/pkg/http/mux/types/body_parser/json_schema_body_parser"
+	endpointPkg "github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	muxResponseError "github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/net/types/domain_parts"
+	"github.com/altshiftab/utils_go/pkg/utils"
+	"github.com/altshiftab/utils_go/pkg/webauthn"
+	webauthnTransport "github.com/altshiftab/utils_go/pkg/webauthn/transport"
 )
 
 const contentTypeJson = "application/json"
@@ -78,17 +78,17 @@ func PatchMux(
 		passkeyConfig.AttestationConveyancePreferenceDirect,
 		passkeyConfig.AttestationConveyancePreferenceEnterprise:
 	default:
-		return motmedelErrors.NewWithTrace(
+		return altshiftErrors.NewWithTrace(
 			fmt.Errorf(
 				"%w: unsupported attestation conveyance preference %q",
-				motmedelErrors.ErrValidationError,
+				altshiftErrors.ErrValidationError,
 				config.AttestationConveyancePreference,
 			),
 		)
 	}
 
 	if originUrl == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("origin url"))
+		return altshiftErrors.NewWithTrace(nil_error.New("origin url"))
 	}
 
 	originUrlString := originUrl.String()
@@ -96,28 +96,28 @@ func PatchMux(
 
 	domainParts := domain_parts.New(originUrlHostName)
 	if domainParts == nil {
-		return motmedelErrors.New(nil_error.New("domain parts"))
+		return altshiftErrors.New(nil_error.New("domain parts"))
 	}
 
 	if utils.IsNil(sessionHandler) {
-		return motmedelErrors.NewWithTrace(nil_error.New("session handler"))
+		return altshiftErrors.NewWithTrace(nil_error.New("session handler"))
 	}
 
 	if utils.IsNil(userHandler) {
-		return motmedelErrors.NewWithTrace(nil_error.New("user handler"))
+		return altshiftErrors.NewWithTrace(nil_error.New("user handler"))
 	}
 
 	if relyingParty == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("relying party"))
+		return altshiftErrors.NewWithTrace(nil_error.New("relying party"))
 	}
 
 	relyingPartyId := relyingParty.Id
 	if relyingPartyId == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("relying party id"))
+		return altshiftErrors.NewWithTrace(empty_error.New("relying party id"))
 	}
 
 	if relyingParty.Name == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("relying party name"))
+		return altshiftErrors.NewWithTrace(empty_error.New("relying party name"))
 	}
 
 	coseAlgorithms := make([]cose.Algorithm, 0, len(allowedCoseAlgorithms))
@@ -127,7 +127,7 @@ func PatchMux(
 
 	loginTransportCredentialBodyParser, err := jsonSchemaBodyParser.New[*webauthnTransport.AssertionPublicKeyCredential]()
 	if err != nil {
-		return motmedelErrors.NewWithTrace(fmt.Errorf("json schema body parser new (login public key credential): %w", err))
+		return altshiftErrors.NewWithTrace(fmt.Errorf("json schema body parser new (login public key credential): %w", err))
 	}
 	loginPublicKeyCredentialBodyParser := body_parser.NewWithProcessor(
 		loginTransportCredentialBodyParser,
@@ -136,7 +136,7 @@ func PatchMux(
 
 	registerTransportCredentialBodyParser, err := jsonSchemaBodyParser.New[*webauthnTransport.AttestationPublicKeyCredential]()
 	if err != nil {
-		return motmedelErrors.NewWithTrace(fmt.Errorf("json schema body parser new (register public key credential): %w", err))
+		return altshiftErrors.NewWithTrace(fmt.Errorf("json schema body parser new (register public key credential): %w", err))
 	}
 	registerPublicKeyCredentialBodyParser := body_parser.NewWithProcessor(
 		registerTransportCredentialBodyParser,
@@ -153,13 +153,13 @@ func PatchMux(
 				challenge, err := passkeyHelpers.GenerateChallenge()
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("generate challenge: %w", err)),
+						ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("generate challenge: %w", err)),
 					}
 				}
 
 				if err := sessionHandler.AddPublicKeyAuthenticationRequest(ctx, challenge); err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(
+						ServerError: altshiftErrors.NewWithTrace(
 							fmt.Errorf("login add challenge to database: %w", err),
 							challenge,
 						),
@@ -169,7 +169,7 @@ func PatchMux(
 				optionsBytes, err := login.MakeOptionsBytes(challenge, relyingPartyId)
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(
+						ServerError: altshiftErrors.NewWithTrace(
 							fmt.Errorf("login make options bytes: %w", err),
 							challenge,
 						),
@@ -202,7 +202,7 @@ func PatchMux(
 				credentialId := bodyInput.CredentialId
 				if len(credentialId) == 0 {
 					return nil, &muxResponseError.ResponseError{
-						ClientError: motmedelErrors.NewWithTrace(empty_error.New("credential id")),
+						ClientError: altshiftErrors.NewWithTrace(empty_error.New("credential id")),
 						ProblemDetail: problem_detail.New(
 							http.StatusUnprocessableEntity,
 							problem_detail_config.WithDetail("The credential id is empty."),
@@ -231,13 +231,13 @@ func PatchMux(
 				}
 				if signingData == nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(nil_error.New("signing data")),
+						ServerError: altshiftErrors.NewWithTrace(nil_error.New("signing data")),
 					}
 				}
 
 				challenge := bodyInput.Challenge
 				if err := sessionHandler.DeletePublicKeyAuthenticationRequest(ctx, challenge); err != nil {
-					wrappedErr := motmedelErrors.New(
+					wrappedErr := altshiftErrors.New(
 						fmt.Errorf("session handler delete public key authentication request: %w", err),
 						sessionHandler, challenge,
 					)
@@ -253,7 +253,7 @@ func PatchMux(
 				publicKey, err := x509.ParsePKIXPublicKey(publicKeyData)
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(
+						ServerError: altshiftErrors.NewWithTrace(
 							fmt.Errorf("x509 parse pkix public key: %w", err),
 							publicKeyData,
 						),
@@ -263,7 +263,7 @@ func PatchMux(
 				verifier, err := webauthn.NewVerifier(cose.Algorithm(signingData.PublicKeyAlgorithm), publicKey)
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.New(
+						ServerError: altshiftErrors.New(
 							fmt.Errorf("webauthn new verifier: %w", err),
 							signingData.PublicKeyAlgorithm, publicKey,
 						),
@@ -281,7 +281,7 @@ func PatchMux(
 					verifier,
 				)
 				if err != nil {
-					wrappedErr := motmedelErrors.New(
+					wrappedErr := altshiftErrors.New(
 						fmt.Errorf("validate assertion public key credential: %w", err),
 						bodyInput.Credential,
 						bodyInput.RawClientDataJson,
@@ -295,14 +295,14 @@ func PatchMux(
 
 					// Signature failures are wrapped as verification errors; both classes are
 					// caused by client input.
-					if motmedelErrors.IsAny(err, motmedelErrors.ErrValidationError, motmedelErrors.ErrVerificationError) {
+					if altshiftErrors.IsAny(err, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError) {
 						validationResponseError := passkeyHelpers.MakeValidationResponseError(
 							wrappedErr,
 							webauthn.AssertionBadRequestErrors,
 						)
 						if validationResponseError == nil {
 							return nil, &muxResponseError.ResponseError{
-								ServerError: motmedelErrors.NewWithTrace(nil_error.New("validation response error")),
+								ServerError: altshiftErrors.NewWithTrace(nil_error.New("validation response error")),
 							}
 						}
 						return nil, validationResponseError
@@ -314,7 +314,7 @@ func PatchMux(
 				signatureCount := signingData.SignatureCount
 				if err := userHandler.UpdatePublicKeyCredential(ctx, credentialId, signatureCount); err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.New(
+						ServerError: altshiftErrors.New(
 							fmt.Errorf("update public key credential: %w", err),
 							credentialId, signatureCount,
 						),
@@ -325,7 +325,7 @@ func PatchMux(
 				headerEntries, err := sessionHandler.HandleSuccessfulAuthentication(ctx, userId)
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.New(
+						ServerError: altshiftErrors.New(
 							fmt.Errorf("session handler handle successful authentication: %w", err),
 							sessionHandler, userId,
 						),
@@ -344,7 +344,7 @@ func PatchMux(
 				challenge, err := passkeyHelpers.GenerateChallenge()
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("generate challenge: %w", err)),
+						ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("generate challenge: %w", err)),
 					}
 				}
 
@@ -363,7 +363,7 @@ func PatchMux(
 				)
 				if err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(
+						ServerError: altshiftErrors.NewWithTrace(
 							fmt.Errorf("make registration options bytes: %w", err),
 						),
 					}
@@ -371,7 +371,7 @@ func PatchMux(
 
 				if err := userHandler.AddRegistrationIssuance(ctx, userId, challenge); err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.NewWithTrace(
+						ServerError: altshiftErrors.NewWithTrace(
 							fmt.Errorf("user handler add token issuance: %w", err),
 							userHandler, userId, challenge,
 						),
@@ -404,7 +404,7 @@ func PatchMux(
 				challenge := bodyInput.Credential.Response.ClientDataJson.Challenge
 				userId, err := userHandler.DeleteRegistrationIssuance(ctx, challenge)
 				if err != nil {
-					wrappedErr := motmedelErrors.New(
+					wrappedErr := altshiftErrors.New(
 						fmt.Errorf("user handler delete token issuance: %w", err),
 						userHandler,
 					)
@@ -424,19 +424,19 @@ func PatchMux(
 					coseAlgorithms,
 				)
 				if err != nil {
-					wrappedErr := motmedelErrors.New(
+					wrappedErr := altshiftErrors.New(
 						fmt.Errorf("validate attestation public key credential: %w", err),
 						bodyInput.Credential, challenge, originUrlString, relyingPartyId, coseAlgorithms,
 					)
 
-					if errors.Is(err, motmedelErrors.ErrValidationError) {
+					if errors.Is(err, altshiftErrors.ErrValidationError) {
 						validationResponseError := passkeyHelpers.MakeValidationResponseError(
 							wrappedErr,
 							webauthn.AttestationBadRequestErrors,
 						)
 						if validationResponseError == nil {
 							return nil, &muxResponseError.ResponseError{
-								ServerError: motmedelErrors.NewWithTrace(nil_error.New("validation response error")),
+								ServerError: altshiftErrors.NewWithTrace(nil_error.New("validation response error")),
 							}
 						}
 						return nil, validationResponseError
@@ -456,19 +456,19 @@ func PatchMux(
 					bodyInput.RawClientDataJson,
 				)
 				if err != nil {
-					wrappedErr := motmedelErrors.New(
+					wrappedErr := altshiftErrors.New(
 						fmt.Errorf("verify attestation statement: %w", err),
 						bodyInput.Credential, bodyInput.RawClientDataJson,
 					)
 
-					if motmedelErrors.IsAny(err, motmedelErrors.ErrValidationError, motmedelErrors.ErrVerificationError) {
+					if altshiftErrors.IsAny(err, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError) {
 						validationResponseError := passkeyHelpers.MakeValidationResponseError(
 							wrappedErr,
 							webauthn.AttestationBadRequestErrors,
 						)
 						if validationResponseError == nil {
 							return nil, &muxResponseError.ResponseError{
-								ServerError: motmedelErrors.NewWithTrace(nil_error.New("validation response error")),
+								ServerError: altshiftErrors.NewWithTrace(nil_error.New("validation response error")),
 							}
 						}
 						return nil, validationResponseError
@@ -484,7 +484,7 @@ func PatchMux(
 								http.StatusForbidden,
 								problem_detail_config.WithDetail("The authenticator is not acceptable."),
 							),
-							ClientError: motmedelErrors.New(
+							ClientError: altshiftErrors.New(
 								fmt.Errorf("attestation verifier: %w", err),
 								attestationResult,
 							),
@@ -493,7 +493,7 @@ func PatchMux(
 				}
 
 				if err := userHandler.AddUser(ctx, userId, ""); err != nil {
-					wrappedErr := motmedelErrors.New(
+					wrappedErr := altshiftErrors.New(
 						fmt.Errorf("user handler add user: %w", err),
 						userHandler, userId,
 					)
@@ -516,7 +516,7 @@ func PatchMux(
 				credential := bodyInput.Credential
 				if err := userHandler.AddPublicKeyCredential(ctx, userId, credential); err != nil {
 					return nil, &muxResponseError.ResponseError{
-						ServerError: motmedelErrors.New(
+						ServerError: altshiftErrors.New(
 							fmt.Errorf("user handler add public key credential: %w", err),
 							userHandler, userId, credential,
 						),

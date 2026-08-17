@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/sso/errors/oauth_error"
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/callback_endpoint/callback_endpoint_config"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 )
 
 func newRedirectTestServer(t *testing.T, origin string, options ...callback_endpoint_config.Option) (*httptest.Server, *Endpoint[*testing2.ProviderClaims]) {

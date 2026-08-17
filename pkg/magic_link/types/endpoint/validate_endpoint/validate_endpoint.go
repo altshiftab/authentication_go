@@ -8,33 +8,33 @@ import (
 	"net/http"
 	"net/url"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/missing_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	processorPkg "github.com/Motmedel/utils_go/pkg/http/mux/types/processor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	muxUtils "github.com/Motmedel/utils_go/pkg/http/mux/utils"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	jwtErrors "github.com/Motmedel/utils_go/pkg/json/jose/jwt/errors"
-	authenticatorPkg "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/validator/setting"
-	motmedelReflect "github.com/Motmedel/utils_go/pkg/reflect"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/validate_endpoint/validate_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/missing_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	processorPkg "github.com/altshiftab/utils_go/pkg/http/mux/types/processor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	jwtErrors "github.com/altshiftab/utils_go/pkg/json/jose/jwt/errors"
+	authenticatorPkg "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
+	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 type UrlInput struct {
@@ -51,7 +51,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 	return processorPkg.New(func(ctx context.Context, input *UrlInput) (*VerifiedToken, *response_error.ResponseError) {
 		if input == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("url input")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("url input")),
 			}
 		}
 
@@ -67,7 +67,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 
 		authenticatedToken, err := authenticator.Authenticate(ctx, tokenString)
 		if err != nil {
-			wrappedErr := motmedelErrors.New(fmt.Errorf("authenticator authenticate: %w", err), tokenString)
+			wrappedErr := altshiftErrors.New(fmt.Errorf("authenticator authenticate: %w", err), tokenString)
 
 			if stdErrors.Is(err, jwtErrors.ErrExpExpired) {
 				return nil, &response_error.ResponseError{
@@ -89,7 +89,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 				}
 			}
 
-			if stdErrors.Is(err, motmedelErrors.ErrParseError) || stdErrors.Is(err, motmedelErrors.ErrVerificationError) || stdErrors.Is(err, motmedelErrors.ErrValidationError) {
+			if stdErrors.Is(err, altshiftErrors.ErrParseError) || stdErrors.Is(err, altshiftErrors.ErrVerificationError) || stdErrors.Is(err, altshiftErrors.ErrValidationError) {
 				return nil, &response_error.ResponseError{
 					ClientError: wrappedErr,
 					ProblemDetail: problem_detail.New(
@@ -103,14 +103,14 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 		}
 		if authenticatedToken == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("authenticated token")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated token")),
 			}
 		}
 
 		claims, err := registered_claims.New(authenticatedToken.Payload)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.New(fmt.Errorf("registered claims new: %w", err), authenticatedToken.Payload),
+				ClientError: altshiftErrors.New(fmt.Errorf("registered claims new: %w", err), authenticatedToken.Payload),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The token claims are malformed."),
@@ -119,14 +119,14 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 		}
 		if claims == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("registered claims")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("registered claims")),
 			}
 		}
 
 		emailAddress := claims.Subject
 		if emailAddress == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("token sub claim")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("token sub claim")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The token sub claim is empty."),
@@ -137,7 +137,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 		nonce := claims.Id
 		if nonce == "" {
 			return nil, &response_error.ResponseError{
-				ClientError: motmedelErrors.NewWithTrace(empty_error.New("token jti claim")),
+				ClientError: altshiftErrors.NewWithTrace(empty_error.New("token jti claim")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The token jti claim is empty."),
@@ -150,7 +150,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 			converted, err := utils.Convert[string](v)
 			if err != nil {
 				return nil, &response_error.ResponseError{
-					ClientError: motmedelErrors.New(fmt.Errorf("convert (redirect): %w", err), v),
+					ClientError: altshiftErrors.New(fmt.Errorf("convert (redirect): %w", err), v),
 					ProblemDetail: problem_detail.New(
 						http.StatusBadRequest,
 						problem_detail_config.WithDetail("The token redirect claim is invalid."),
@@ -173,25 +173,25 @@ type Endpoint struct {
 }
 
 func (e *Endpoint) Initialize(
-	verifier motmedelCryptoInterfaces.NamedVerifier,
+	verifier altshiftCryptoInterfaces.NamedVerifier,
 	sessionManager *session_manager.Manager,
 	redirectUrl *url.URL,
 ) error {
 	if utils.IsNil(verifier) {
-		return motmedelErrors.NewWithTrace(nil_error.New("verifier"))
+		return altshiftErrors.NewWithTrace(nil_error.New("verifier"))
 	}
 
 	if sessionManager == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("session manager"))
+		return altshiftErrors.NewWithTrace(nil_error.New("session manager"))
 	}
 
 	if redirectUrl == nil {
-		return motmedelErrors.NewWithTrace(nil_error.New("redirect url"))
+		return altshiftErrors.NewWithTrace(nil_error.New("redirect url"))
 	}
 
 	redirectUrlString := redirectUrl.String()
 	if redirectUrlString == "" {
-		return motmedelErrors.NewWithTrace(empty_error.New("redirect url"))
+		return altshiftErrors.NewWithTrace(empty_error.New("redirect url"))
 	}
 
 	e.UrlParser = adapter.New(
@@ -230,7 +230,7 @@ func (e *Endpoint) Initialize(
 		}
 		if response == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("response")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
 			}
 		}
 
@@ -262,7 +262,7 @@ func New(options ...validate_endpoint_config.Option) *Endpoint {
 				Method: http.MethodPost,
 				Public: true,
 				Hint: &endpoint.Hint{
-					UrlInputType: motmedelReflect.TypeOf[UrlInput](),
+					UrlInputType: altshiftReflect.TypeOf[UrlInput](),
 				},
 			},
 		},

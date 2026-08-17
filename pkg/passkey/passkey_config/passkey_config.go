@@ -1,6 +1,6 @@
 package passkey_config
 
-import "github.com/Motmedel/utils_go/pkg/webauthn"
+import "github.com/altshiftab/utils_go/pkg/webauthn"
 
 // The WebAuthn attestation conveyance preferences (WebAuthn §5.4.7). "none" is the default and
 // the privacy-preserving choice for passwordless passkey relying parties; the others request an

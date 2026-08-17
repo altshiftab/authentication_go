@@ -5,10 +5,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 const (
@@ -90,7 +90,7 @@ func TestInitialize(t *testing.T) {
 			}
 
 			err = testEndpoint.Initialize(testCase.clientId)
-			motmedelTestingCmp.CompareErr(t, err, testCase.wantErr)
+			altshiftTestingCmp.CompareErr(t, err, testCase.wantErr)
 		})
 	}
 }
@@ -119,7 +119,7 @@ func TestNew(t *testing.T) {
 			t.Parallel()
 
 			_, err := New(testCase.path)
-			motmedelTestingCmp.CompareErr(t, err, testCase.wantErr)
+			altshiftTestingCmp.CompareErr(t, err, testCase.wantErr)
 		})
 	}
 }

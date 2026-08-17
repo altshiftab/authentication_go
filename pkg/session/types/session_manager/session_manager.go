@@ -10,25 +10,6 @@ import (
 	"strings"
 	"time"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelDatabase "github.com/Motmedel/utils_go/pkg/database"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/iso3166"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claim_strings"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/numeric_date"
-	motmedelTime "github.com/Motmedel/utils_go/pkg/time"
-	"github.com/Motmedel/utils_go/pkg/utils"
-	motmedelUuid "github.com/Motmedel/utils_go/pkg/uuid"
 	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
@@ -39,12 +20,31 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie/session_cookie_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/iso3166"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claim_strings"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
+	altshiftTime "github.com/altshiftab/utils_go/pkg/time"
+	"github.com/altshiftab/utils_go/pkg/utils"
+	altshiftUuid "github.com/altshiftab/utils_go/pkg/uuid"
 )
 
 const setCookieHeaderName = "Set-Cookie"
 
 type Manager struct {
-	Signer       motmedelCryptoInterfaces.NamedSigner
+	Signer       altshiftCryptoInterfaces.NamedSigner
 	Issuer       string
 	CookieDomain string
 	Db           *sql.DB
@@ -68,7 +68,7 @@ type Manager struct {
 // balancer's X-Client-Geo-* headers. It returns nil when no HTTP context is
 // present (e.g. non-HTTP callers), which InsertAuthentication stores as NULLs.
 func clientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMetadata {
-	httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*motmedelHttpTypes.HttpContext)
+	httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext)
 	if !ok || httpContext == nil {
 		return nil
 	}
@@ -109,48 +109,48 @@ func clientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMet
 func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAddress string, idTokenHash []byte) (*response.Response, *response_error.ResponseError) {
 	if authMethod == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication method")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication method")),
 		}
 	}
 
 	signer := m.Signer
 	if utils.IsNil(signer) {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("signer")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("signer")),
 		}
 	}
 
 	dbscAlgs := m.DbscAlgs
 	if len(dbscAlgs) == 0 {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("dbsc algs")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("dbsc algs")),
 		}
 	}
 
 	dbscRegisterPath := m.DbscRegisterPath
 	if dbscRegisterPath == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("dbsc register path")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("dbsc register path")),
 		}
 	}
 
 	audience := m.CookieDomain
 	if audience == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("audience (cookie domain)")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("audience (cookie domain)")),
 		}
 	}
 
 	if emailAddress == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("email address")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("email address")),
 		}
 	}
 
-	selectAccountCtx, selectAccountCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+	selectAccountCtx, selectAccountCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 	defer selectAccountCtxCancel()
 	account, err := m.selectEmailAddressAccount(selectAccountCtx, emailAddress, m.Db)
-	wrappedErr := motmedelErrors.New(fmt.Errorf("select email address account: %w", err), emailAddress)
+	wrappedErr := altshiftErrors.New(fmt.Errorf("select email address account: %w", err), emailAddress)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &response_error.ResponseError{
@@ -165,20 +165,20 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	}
 	if account == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("account")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("account")),
 		}
 	}
 	accountId := account.Id
 	if accountId == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("account id")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("account id")),
 		}
 	}
 
 	accountEmailAddress := account.EmailAddress
 	if accountEmailAddress == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account email address")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account email address")),
 		}
 	}
 
@@ -188,14 +188,14 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 		customerId := customer.Id
 		if customerId == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account customer id")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account customer id")),
 			}
 		}
 
 		customerName := customer.Name
 		if customerName == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account customer name")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account customer name")),
 			}
 		}
 
@@ -213,12 +213,12 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 
 	clientMetadata := clientMetadataFromContext(ctx)
 
-	insertDbCtx, insertDbCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+	insertDbCtx, insertDbCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 	defer insertDbCancel()
 
 	authentication, err := m.insertAuthentication(insertDbCtx, accountId, idTokenHash, m.AuthenticationDuration, clientMetadata, m.Db)
 	if err != nil {
-		wrappedErr := motmedelErrors.New(fmt.Errorf("insert authentication: %w", err))
+		wrappedErr := altshiftErrors.New(fmt.Errorf("insert authentication: %w", err))
 		if errors.Is(err, databaseErrors.ErrIdTokenAlreadyUsed) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
@@ -232,35 +232,35 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	}
 	if authentication == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication")),
 		}
 	}
 
 	authenticationId := authentication.Id
 	if authenticationId == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication id")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication id")),
 		}
 	}
 
 	dbscChallenge, err := session.GenerateDbscChallenge()
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(fmt.Errorf("generate dbsc challenge: %w", err)),
+			ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("generate dbsc challenge: %w", err)),
 		}
 	}
 	if dbscChallenge == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("dbsc challenge")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("dbsc challenge")),
 		}
 	}
 
-	dbInsertCtx, dbInsertCtxCancel := motmedelDatabase.MakeTimeoutCtx(ctx)
+	dbInsertCtx, dbInsertCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 	defer dbInsertCtxCancel()
 	err = m.insertDbscChallenge(dbInsertCtx, dbscChallenge, authenticationId, m.DbscChallengeDuration, m.Db)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("insert dbsc challenge: %w", err),
 				authenticationId,
 				dbscChallenge,
@@ -271,36 +271,36 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	authenticationExpiresAt := authentication.ExpiresAt
 	if authenticationExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication expires at")),
 		}
 	}
 
 	authenticationCreatedAt := authentication.CreatedAt
 	if authenticationCreatedAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication created at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication created at")),
 		}
 	}
 
 	issuedAt := numeric_date.New(time.Now())
 
-	sessionExpiresAt := motmedelTime.Min(new(time.Now().Add(m.InitialSessionDuration)), authenticationExpiresAt)
+	sessionExpiresAt := altshiftTime.Min(new(time.Now().Add(m.InitialSessionDuration)), authenticationExpiresAt)
 	if sessionExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session expires at")),
 		}
 	}
 
 	audienceClaimString, err := claim_strings.Convert(audience)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("claim strings convert: %w", err), audience),
+			ServerError: altshiftErrors.New(fmt.Errorf("claim strings convert: %w", err), audience),
 		}
 	}
 
 	sessionClaims := &session_claims.Claims{
 		Claims: registered_claims.Claims{
-			Id:        strings.Join([]string{authenticationId, motmedelUuid.NewString()}, ":"),
+			Id:        strings.Join([]string{authenticationId, altshiftUuid.NewString()}, ":"),
 			Issuer:    m.Issuer,
 			Audience:  audienceClaimString,
 			Subject:   strings.Join([]string{accountId, accountEmailAddress}, ":"),
@@ -316,19 +316,19 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
+			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
 		}
 	}
 	if sessionToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token")),
 		}
 	}
 
 	sessionTokenString, err := sessionToken.Encode(m.Signer)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("new session token encode: %w", err),
 				sessionToken, signer,
 			),
@@ -348,7 +348,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
 				sessionTokenString, authenticationExpiresAt, m.CookieName, m.CookieDomain,
 			),
@@ -356,7 +356,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	}
 	if sessionCookie == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session cookie")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session cookie")),
 		}
 	}
 
@@ -387,26 +387,26 @@ func (m *Manager) RefreshSession(
 ) (*response.Response, *response_error.ResponseError) {
 	if authentication == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication")),
 		}
 	}
 
 	if sessionToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token")),
 		}
 	}
 
 	if authenticationMethod == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication method")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication method")),
 		}
 	}
 
 	signer := m.Signer
 	if utils.IsNil(signer) {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("signer")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("signer")),
 		}
 	}
 
@@ -440,27 +440,27 @@ func (m *Manager) RefreshSession(
 	}
 	if newSessionToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("new session token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("new session token")),
 		}
 	}
 
 	newSessionTokenClaims := newSessionToken.Claims
 	if newSessionTokenClaims == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("new session token claims")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("new session token claims")),
 		}
 	}
 	newSessionTokenExpiresAt := newSessionTokenClaims.ExpiresAt
 	if newSessionTokenExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("new session token claims expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("new session token claims expires at")),
 		}
 	}
 
 	newSessionTokenString, err := newSessionToken.Encode(signer)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("new session token encode: %w", err),
 				newSessionToken, signer,
 			),
@@ -470,7 +470,7 @@ func (m *Manager) RefreshSession(
 	authenticationExpiresAt := authentication.ExpiresAt
 	if authenticationExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication expires at")),
 		}
 	}
 
@@ -492,7 +492,7 @@ func (m *Manager) RefreshSession(
 	)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
 				newSessionTokenString, cookieExpiresAt, m.CookieName, m.CookieDomain,
 			),
@@ -500,7 +500,7 @@ func (m *Manager) RefreshSession(
 	}
 	if sessionCookie == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session cookie")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session cookie")),
 		}
 	}
 
@@ -524,48 +524,48 @@ func (m *Manager) MintSession(
 ) (*response.Response, *response_error.ResponseError) {
 	if authentication == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication")),
 		}
 	}
 
 	if authenticationMethod == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication method")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication method")),
 		}
 	}
 
 	signer := m.Signer
 	if utils.IsNil(signer) {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("signer")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("signer")),
 		}
 	}
 
 	audience := m.CookieDomain
 	if audience == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("audience (cookie domain)")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("audience (cookie domain)")),
 		}
 	}
 
 	authenticationId := authentication.Id
 	if authenticationId == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication id")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication id")),
 		}
 	}
 
 	authenticationExpiresAt := authentication.ExpiresAt
 	if authenticationExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication expires at")),
 		}
 	}
 
 	authenticationCreatedAt := authentication.CreatedAt
 	if authenticationCreatedAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication created at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication created at")),
 		}
 	}
 
@@ -591,7 +591,7 @@ func (m *Manager) MintSession(
 	account := authentication.Account
 	if account == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("authentication account")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication account")),
 		}
 	}
 
@@ -607,14 +607,14 @@ func (m *Manager) MintSession(
 	accountId := account.Id
 	if accountId == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account id")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account id")),
 		}
 	}
 
 	accountEmailAddress := account.EmailAddress
 	if accountEmailAddress == "" {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account email address")),
+			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account email address")),
 		}
 	}
 
@@ -622,28 +622,28 @@ func (m *Manager) MintSession(
 	if customer := account.Customer; customer != nil {
 		if customer.Id == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account customer id")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account customer id")),
 			}
 		}
 		if customer.Name == "" {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(empty_error.New("authentication account customer name")),
+				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account customer name")),
 			}
 		}
 		authorizedParty = strings.Join([]string{customer.Id, customer.Name}, ":")
 	}
 
-	sessionExpiresAt := motmedelTime.Min(new(time.Now().Add(sessionDuration)), authenticationExpiresAt)
+	sessionExpiresAt := altshiftTime.Min(new(time.Now().Add(sessionDuration)), authenticationExpiresAt)
 	if sessionExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session expires at")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session expires at")),
 		}
 	}
 
 	audienceClaimString, err := claim_strings.Convert(audience)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("claim strings convert: %w", err), audience),
+			ServerError: altshiftErrors.New(fmt.Errorf("claim strings convert: %w", err), audience),
 		}
 	}
 
@@ -651,7 +651,7 @@ func (m *Manager) MintSession(
 
 	sessionClaims := &session_claims.Claims{
 		Claims: registered_claims.Claims{
-			Id:        strings.Join([]string{authenticationId, motmedelUuid.NewString()}, ":"),
+			Id:        strings.Join([]string{authenticationId, altshiftUuid.NewString()}, ":"),
 			Issuer:    m.Issuer,
 			Audience:  audienceClaimString,
 			Subject:   strings.Join([]string{accountId, accountEmailAddress}, ":"),
@@ -668,19 +668,19 @@ func (m *Manager) MintSession(
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
+			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
 		}
 	}
 	if sessionToken == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session token")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token")),
 		}
 	}
 
 	sessionTokenString, err := sessionToken.Encode(signer)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(fmt.Errorf("session token encode: %w", err), sessionToken),
+			ServerError: altshiftErrors.New(fmt.Errorf("session token encode: %w", err), sessionToken),
 		}
 	}
 
@@ -698,7 +698,7 @@ func (m *Manager) MintSession(
 	)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.New(
+			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
 				cookieExpiresAt, m.CookieName, m.CookieDomain,
 			),
@@ -706,7 +706,7 @@ func (m *Manager) MintSession(
 	}
 	if sessionCookie == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: motmedelErrors.NewWithTrace(nil_error.New("session cookie")),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session cookie")),
 		}
 	}
 
@@ -716,26 +716,26 @@ func (m *Manager) MintSession(
 }
 
 func New(
-	signer motmedelCryptoInterfaces.NamedSigner,
+	signer altshiftCryptoInterfaces.NamedSigner,
 	db *sql.DB,
 	issuer string,
 	cookieDomain string,
 	options ...session_manager_config.Option,
 ) (*Manager, error) {
 	if utils.IsNil(signer) {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("signer"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("signer"))
 	}
 
 	if db == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("db"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("db"))
 	}
 
 	if issuer == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("issuer"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("issuer"))
 	}
 
 	if cookieDomain == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("cookie domain"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("cookie domain"))
 	}
 
 	config := session_manager_config.New(options...)

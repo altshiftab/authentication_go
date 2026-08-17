@@ -7,18 +7,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/numeric_date"
-	motmedelJwtToken "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token"
-	"github.com/Motmedel/utils_go/pkg/schema"
-	motmedelTime "github.com/Motmedel/utils_go/pkg/time"
-	"github.com/Motmedel/utils_go/pkg/utils"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/session/errors"
+	"github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
+	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
+	"github.com/altshiftab/utils_go/pkg/schema"
+	altshiftTime "github.com/altshiftab/utils_go/pkg/time"
+	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
 type Token struct {
@@ -81,24 +81,24 @@ func (t *Token) UserAttributes() []any {
 
 func (t *Token) Encode(signer interfaces.NamedSigner) (string, error) {
 	if utils.IsNil(signer) {
-		return "", motmedelErrors.NewWithTrace(nil_error.New("signer"))
+		return "", altshiftErrors.NewWithTrace(nil_error.New("signer"))
 	}
 
 	data, err := json.Marshal(t.Claims)
 	if err != nil {
-		return "", motmedelErrors.NewWithTrace(fmt.Errorf("json marshal (claims): %w", err), t.Claims)
+		return "", altshiftErrors.NewWithTrace(fmt.Errorf("json marshal (claims): %w", err), t.Claims)
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return "", motmedelErrors.NewWithTrace(fmt.Errorf("json unmarshal (claims data): %w", err), data)
+		return "", altshiftErrors.NewWithTrace(fmt.Errorf("json unmarshal (claims data): %w", err), data)
 	}
 
-	token := motmedelJwtToken.Token{Payload: payload}
+	token := altshiftJwtToken.Token{Payload: payload}
 
 	tokenString, err := token.Encode(signer)
 	if err != nil {
-		return "", motmedelErrors.New(fmt.Errorf("token encode: %w", err), token, signer)
+		return "", altshiftErrors.New(fmt.Errorf("token encode: %w", err), token, signer)
 	}
 
 	return tokenString, nil
@@ -110,21 +110,21 @@ func (t *Token) Refresh(
 	authenticationMethod string,
 ) (*Token, error) {
 	if authentication == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("authentication"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("authentication"))
 	}
 
 	if authenticationMethod == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("authentication method"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("authentication method"))
 	}
 
 	claims := t.Claims
 	if claims == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("session token claims"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("session token claims"))
 	}
 
 	authenticationExpiresAt := authentication.ExpiresAt
 	if authenticationExpiresAt == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("authentication expires at"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("authentication expires at"))
 	}
 
 	if authentication.Ended {
@@ -137,16 +137,16 @@ func (t *Token) Refresh(
 
 	account := authentication.Account
 	if account == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("authentication account"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("authentication account"))
 	}
 
 	if account.Locked {
 		return nil, errors.ErrLockedAccount
 	}
 
-	newSessionExpiresAtTime := motmedelTime.Min(authenticationExpiresAt, new(time.Now().Add(sessionDuration)))
+	newSessionExpiresAtTime := altshiftTime.Min(authenticationExpiresAt, new(time.Now().Add(sessionDuration)))
 	if newSessionExpiresAtTime == nil {
-		return nil, motmedelErrors.NewWithTrace(nil_error.New("new session expires at"))
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("new session expires at"))
 	}
 
 	newSessionClaims := *claims
@@ -174,8 +174,8 @@ func Parse(claims *session_claims.Claims) (*Token, error) {
 		var found bool
 		authenticationId, sessionId, found = strings.Cut(id, ":")
 		if !found {
-			return nil, motmedelErrors.NewWithTrace(
-				fmt.Errorf("%w: %w (jti)", motmedelErrors.ErrParseError, motmedelErrors.ErrBadSplit),
+			return nil, altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: %w (jti)", altshiftErrors.ErrParseError, altshiftErrors.ErrBadSplit),
 			)
 		}
 	}
@@ -185,8 +185,8 @@ func Parse(claims *session_claims.Claims) (*Token, error) {
 		var found bool
 		subjectId, subjectEmailAddress, found = strings.Cut(sub, ":")
 		if !found {
-			return nil, motmedelErrors.NewWithTrace(
-				fmt.Errorf("%w: %w (sub)", motmedelErrors.ErrParseError, motmedelErrors.ErrBadSplit),
+			return nil, altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: %w (sub)", altshiftErrors.ErrParseError, altshiftErrors.ErrBadSplit),
 			)
 		}
 	}
@@ -196,8 +196,8 @@ func Parse(claims *session_claims.Claims) (*Token, error) {
 		var found bool
 		tenantId, tenantName, found = strings.Cut(azp, ":")
 		if !found {
-			return nil, motmedelErrors.NewWithTrace(
-				fmt.Errorf("%w: %w (azp)", motmedelErrors.ErrParseError, motmedelErrors.ErrBadSplit),
+			return nil, altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: %w (azp)", altshiftErrors.ErrParseError, altshiftErrors.ErrBadSplit),
 			)
 		}
 	}

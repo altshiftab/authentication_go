@@ -4,14 +4,14 @@ import (
 	"context"
 	"net/http"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/nil_error"
-	processorPkg "github.com/Motmedel/utils_go/pkg/http/mux/types/processor"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	"github.com/Motmedel/utils_go/pkg/webauthn"
-	webauthnTransport "github.com/Motmedel/utils_go/pkg/webauthn/transport"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	processorPkg "github.com/altshiftab/utils_go/pkg/http/mux/types/processor"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/webauthn"
+	webauthnTransport "github.com/altshiftab/utils_go/pkg/webauthn/transport"
 )
 
 type BodyInput struct {
@@ -35,7 +35,7 @@ var PublicKeyCredentialProcessor = processorPkg.New(
 		}
 		if credential == nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.NewWithTrace(nil_error.New("public key credential")),
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("public key credential")),
 			}
 		}
 

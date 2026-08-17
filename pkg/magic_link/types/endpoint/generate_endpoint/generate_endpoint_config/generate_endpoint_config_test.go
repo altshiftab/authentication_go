@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	"github.com/Motmedel/utils_go/pkg/mail/types/message"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/mail/types/message"
 )
 
 func TestNew_Defaults(t *testing.T) {
@@ -38,10 +38,10 @@ func TestNew_Defaults(t *testing.T) {
 func TestNew_Options(t *testing.T) {
 	t.Parallel()
 
-	customBuilder := func(_ *mail.Address, _ *url.URL, _ time.Time, _ *motmedelHttpTypes.AcceptLanguage) (*message.Body, error) {
+	customBuilder := func(_ *mail.Address, _ *url.URL, _ time.Time, _ *altshiftHttpTypes.AcceptLanguage) (*message.Body, error) {
 		return &message.Body{Content: []byte("custom"), ContentType: "text/plain"}, nil
 	}
-	customSubject := func(_ *motmedelHttpTypes.AcceptLanguage) string { return "Hi" }
+	customSubject := func(_ *altshiftHttpTypes.AcceptLanguage) string { return "Hi" }
 	customNonce := func() string { return "fixed-nonce" }
 
 	c := New(

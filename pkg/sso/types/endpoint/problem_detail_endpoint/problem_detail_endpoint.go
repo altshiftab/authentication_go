@@ -4,19 +4,19 @@ import (
 	"fmt"
 	"net/http"
 
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/errors/types/empty_error"
-	muxContext "github.com/Motmedel/utils_go/pkg/http/mux/context"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	muxResponse "github.com/Motmedel/utils_go/pkg/http/mux/types/response"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail/problem_detail_config"
-	motmedelReflect "github.com/Motmedel/utils_go/pkg/reflect"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint/problem_detail_endpoint_config"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
+	muxContext "github.com/altshiftab/utils_go/pkg/http/mux/context"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 )
 
 // New returns a public GET endpoint that serves a single, static RFC 9457
@@ -32,11 +32,11 @@ func New(options ...problem_detail_endpoint_config.Option) (*endpoint.Endpoint, 
 	config := problem_detail_endpoint_config.New(options...)
 
 	if config.Path == "" {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("path"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("path"))
 	}
 
 	if config.Status == 0 {
-		return nil, motmedelErrors.NewWithTrace(empty_error.New("status"))
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("status"))
 	}
 
 	// Default to the HTML-capable converter so browsers get a readable page (with
@@ -61,12 +61,12 @@ func New(options ...problem_detail_endpoint_config.Option) (*endpoint.Endpoint, 
 
 	handler := func(request *http.Request, _ []byte) (*muxResponse.Response, *response_error.ResponseError) {
 		contentNegotiation, _ := request.Context().
-			Value(muxContext.ContentNegotiationContextKey).(*motmedelHttpTypes.ContentNegotiation)
+			Value(muxContext.ContentNegotiationContextKey).(*altshiftHttpTypes.ContentNegotiation)
 
 		body, contentType, err := converter.Convert(detail, contentNegotiation)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: motmedelErrors.New(fmt.Errorf("problem detail converter convert: %w", err), detail),
+				ServerError: altshiftErrors.New(fmt.Errorf("problem detail converter convert: %w", err), detail),
 			}
 		}
 
@@ -95,7 +95,7 @@ func New(options ...problem_detail_endpoint_config.Option) (*endpoint.Endpoint, 
 		Public:    true,
 		Handler:   handler,
 		Hint: &endpoint.Hint{
-			OutputType:        motmedelReflect.TypeOf[problem_detail.Detail](),
+			OutputType:        altshiftReflect.TypeOf[problem_detail.Detail](),
 			OutputContentType: "application/problem+json",
 		},
 	}, nil

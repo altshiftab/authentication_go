@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/problem_detail_endpoint/problem_detail_endpoint_config"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 )
 
 const testBackUrl = "/login?redirect=%2Fapp"

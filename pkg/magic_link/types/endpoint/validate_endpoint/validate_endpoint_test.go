@@ -8,20 +8,20 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelJwtToken "github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/token"
 	magicLinkTesting "github.com/altshiftab/authentication_go/pkg/magic_link/testing"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
 )
 
 const defaultPath = "/api/login/magic/validate"
 
 var (
 	sessionManager *session_manager.Manager
-	signer         *motmedelCryptoEddsa.Method
+	signer         *altshiftCryptoEddsa.Method
 	redirectUrl    *url.URL
 )
 
@@ -37,7 +37,7 @@ func TestMain(m *testing.M) {
 
 func mintToken(t *testing.T, payload map[string]any) string {
 	t.Helper()
-	token := &motmedelJwtToken.Token{Payload: payload}
+	token := &altshiftJwtToken.Token{Payload: payload}
 	tokenString, err := token.Encode(signer)
 	if err != nil {
 		t.Fatalf("token encode: %v", err)
@@ -131,7 +131,7 @@ func TestEndpoint(t *testing.T) {
 				},
 			},
 			token: func() string {
-				token := &motmedelJwtToken.Token{Payload: defaultPayload(magicLinkTesting.ValidEmail, "wrong-sig-nonce")}
+				token := &altshiftJwtToken.Token{Payload: defaultPayload(magicLinkTesting.ValidEmail, "wrong-sig-nonce")}
 				tokenString, err := token.Encode(otherSigner)
 				if err != nil {
 					t.Fatalf("token encode: %v", err)
@@ -316,7 +316,7 @@ func TestEndpoint_Initialize(t *testing.T) {
 			t.Parallel()
 
 			endpoint := New()
-			var verifierArg *motmedelCryptoEddsa.Method = signer
+			var verifierArg *altshiftCryptoEddsa.Method = signer
 			if tt.nilVerifier {
 				verifierArg = nil
 			}

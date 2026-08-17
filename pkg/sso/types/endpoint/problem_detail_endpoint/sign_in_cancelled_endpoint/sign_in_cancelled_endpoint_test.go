@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 )
 
 func TestEndpoint(t *testing.T) {

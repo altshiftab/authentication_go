@@ -10,15 +10,6 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoInterfaces "github.com/Motmedel/utils_go/pkg/crypto/interfaces"
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/adapter"
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/request_parser/query_extractor"
-	"github.com/Motmedel/utils_go/pkg/http/types/problem_detail"
-	motmedelTestingCmp "github.com/Motmedel/utils_go/pkg/testing/cmp"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
@@ -29,6 +20,15 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_refresh_endpoint/dbsc_refresh_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_register_endpoint/dbsc_register_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
+	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
 var defaultTestEndpoint = New()
@@ -36,7 +36,7 @@ var defaultHttpServer *httptest.Server
 var defaultProcessor *dbsc_session_response_processor.Processor
 
 var db *sql.DB
-var method motmedelCryptoInterfaces.Method
+var method altshiftCryptoInterfaces.Method
 var sessionManager *session_manager.Manager
 
 func TestMain(m *testing.M) {
@@ -330,14 +330,14 @@ func TestEndpoint_Initialize(t *testing.T) {
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	opts := []motmedelTestingCmp.Option{
-		motmedelTestingCmp.IgnoreFields(
+	opts := []altshiftTestingCmp.Option{
+		altshiftTestingCmp.IgnoreFields(
 			Endpoint{},
 			"insertDbscChallenge",
 			"generateDbscChallenge",
 			"selectRefreshAuthentication",
 		),
-		motmedelTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
+		altshiftTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
 	}
 
 	type args struct {
@@ -386,7 +386,7 @@ func TestNew(t *testing.T) {
 			t.Parallel()
 
 			got := New(tt.args.options...)
-			if diff := motmedelTestingCmp.Diff(tt.want, got, opts...); diff != "" {
+			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
 			}
 		})

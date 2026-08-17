@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Motmedel/utils_go/pkg/webauthn"
-	webauthnTransport "github.com/Motmedel/utils_go/pkg/webauthn/transport"
+	"github.com/altshiftab/utils_go/pkg/webauthn"
+	webauthnTransport "github.com/altshiftab/utils_go/pkg/webauthn/transport"
 )
 
 func TestMakeRegistrationOptionsBytes(t *testing.T) {

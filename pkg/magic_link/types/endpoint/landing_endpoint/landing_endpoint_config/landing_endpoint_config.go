@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"html/template"
 
-	motmedelHttpTypes "github.com/Motmedel/utils_go/pkg/http/types"
-	cspParsing "github.com/Motmedel/utils_go/pkg/http/types/content_security_policy"
-	cspUtils "github.com/Motmedel/utils_go/pkg/http/utils/content_security_policy"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	cspParsing "github.com/altshiftab/utils_go/pkg/http/types/content_security_policy"
+	cspUtils "github.com/altshiftab/utils_go/pkg/http/utils/content_security_policy"
 )
 
-type PageBuilder func(formAction string, acceptLanguage *motmedelHttpTypes.AcceptLanguage) ([]byte, error)
+type PageBuilder func(formAction string, acceptLanguage *altshiftHttpTypes.AcceptLanguage) ([]byte, error)
 
 const defaultInlineStyle = `body{font-family:system-ui,sans-serif;display:flex;min-height:100vh;margin:0;align-items:center;justify-content:center;background:#f5f5f5;color:#111}.card{background:#fff;padding:2rem;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.1);text-align:center;max-width:24rem;width:100%;box-sizing:border-box}h1{margin:0 0 .5rem;font-size:1.25rem}p{margin:0 0 1.5rem;color:#555}button{padding:.75rem 1.5rem;font-size:1rem;border:0;border-radius:4px;background:#111;color:#fff;cursor:pointer}button:hover{background:#333}`
 
@@ -48,7 +48,7 @@ var (
 </html>
 `))
 
-	DefaultPageBuilder PageBuilder = func(formAction string, _ *motmedelHttpTypes.AcceptLanguage) ([]byte, error) {
+	DefaultPageBuilder PageBuilder = func(formAction string, _ *altshiftHttpTypes.AcceptLanguage) ([]byte, error) {
 		var buf bytes.Buffer
 		if err := defaultPageTemplate.Execute(&buf, struct{ Action string }{Action: formAction}); err != nil {
 			return nil, fmt.Errorf("template execute: %w", err)

@@ -1,7 +1,7 @@
 package problem_detail_endpoint_config
 
 import (
-	"github.com/Motmedel/utils_go/pkg/http/mux/types/response_error"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 )
 
 // DefaultCacheControl is applied to served problem documents. They are static

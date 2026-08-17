@@ -6,7 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	muxTesting "github.com/Motmedel/utils_go/pkg/http/mux/testing"
+	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	muxPkg "github.com/Motmedel/utils_go/pkg/http/mux"
-	"github.com/Motmedel/utils_go/pkg/http/types/http_context_extractor"
-	motmedelLog "github.com/Motmedel/utils_go/pkg/log"
-	motmedelContextLogger "github.com/Motmedel/utils_go/pkg/log/context_logger"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/sso/errors/oauth_error"
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
+	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
+	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
 )
 
 // TestProviderErrorLogging drives the OAuth provider-error path (the user
@@ -36,10 +36,10 @@ func TestProviderErrorLogging(t *testing.T) {
 
 	var logBuffer bytes.Buffer
 	httpContextExtractor := http_context_extractor.New()
-	logger := motmedelContextLogger.New(
+	logger := altshiftContextLogger.New(
 		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		&motmedelLog.ErrorContextExtractor{
-			ContextExtractors: []motmedelLog.ContextExtractor{httpContextExtractor},
+		&altshiftLog.ErrorContextExtractor{
+			ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
 		},
 		httpContextExtractor,
 	)
@@ -202,10 +202,10 @@ func keysOf(m map[string]any) []string {
 func TestSignInLoggingIdentifiesUser(t *testing.T) {
 	var logBuffer bytes.Buffer
 	httpContextExtractor := http_context_extractor.New()
-	logger := motmedelContextLogger.New(
+	logger := altshiftContextLogger.New(
 		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		&motmedelLog.ErrorContextExtractor{
-			ContextExtractors: []motmedelLog.ContextExtractor{httpContextExtractor},
+		&altshiftLog.ErrorContextExtractor{
+			ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
 		},
 		httpContextExtractor,
 	)

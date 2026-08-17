@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	webauthnTransport "github.com/Motmedel/utils_go/pkg/webauthn/transport"
+	webauthnTransport "github.com/altshiftab/utils_go/pkg/webauthn/transport"
 )
 
 const attestationCredentialJson = `{

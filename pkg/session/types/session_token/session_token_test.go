@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	motmedelCryptoEddsa "github.com/Motmedel/utils_go/pkg/crypto/eddsa"
-	motmedelErrors "github.com/Motmedel/utils_go/pkg/errors"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
-	"github.com/Motmedel/utils_go/pkg/json/jose/jwt/types/numeric_date"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
+	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
+	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
 )
 
 func makeClaims(id, subject, authorizedParty string, roles []string) *session_claims.Claims {
@@ -110,7 +110,7 @@ func TestParse(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			if _, err := Parse(testCase.claims); !errors.Is(err, motmedelErrors.ErrParseError) {
+			if _, err := Parse(testCase.claims); !errors.Is(err, altshiftErrors.ErrParseError) {
 				t.Errorf("expected parse error, got %v", err)
 			}
 		})
@@ -194,7 +194,7 @@ func TestEncode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ed25519 generate key: %v", err)
 	}
-	signer := &motmedelCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+	signer := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
 
 	t.Run("nil signer", func(t *testing.T) {
 		t.Parallel()

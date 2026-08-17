@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/Motmedel/utils_go/pkg/mail/types/message"
+	"github.com/altshiftab/utils_go/pkg/mail/types/message"
 )
 
 func TestNewSigner(t *testing.T) {
