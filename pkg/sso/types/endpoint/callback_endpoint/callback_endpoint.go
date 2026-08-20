@@ -190,17 +190,24 @@ func (e *Endpoint[T]) Initialize(
 		defer dbPopCtxCancel()
 
 		var oauthFlow *oauth_flow.Flow
+		var popErr error
 		for _, callbackCookieValue := range callbackCookieValues {
 			// A pop that matches nothing removes nothing, so the values can be
 			// tried in turn. None of them is named in an error: see above.
+			//
+			// Any error means "not this one" and the next value is tried, rather
+			// than sql.ErrNoRows alone: a value that is not a well-formed flow id
+			// has the store objecting to its syntax instead of reporting no rows,
+			// and a session token sitting beside the flow id is precisely that.
+			// Stopping at the first such value would defeat the whole point of
+			// trying them all. The last error is kept so that a store failing
+			// outright is still reported as a server error and not a bad request.
 			poppedOauthFlow, err := e.popOauthFlow(dbPopCtx, callbackCookieValue, db)
 			if err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					continue
+				if !errors.Is(err, sql.ErrNoRows) {
+					popErr = err
 				}
-				return nil, &response_error.ResponseError{
-					ServerError: altshiftErrors.New(fmt.Errorf("get oauth flow: %w", err)),
-				}
+				continue
 			}
 			if poppedOauthFlow == nil {
 				return nil, &response_error.ResponseError{
@@ -210,6 +217,11 @@ func (e *Endpoint[T]) Initialize(
 
 			oauthFlow = poppedOauthFlow
 			break
+		}
+		if oauthFlow == nil && popErr != nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.New(fmt.Errorf("get oauth flow: %w", popErr)),
+			}
 		}
 		if oauthFlow == nil {
 			// Terminal on purpose. The cookie is what binds the callback to the

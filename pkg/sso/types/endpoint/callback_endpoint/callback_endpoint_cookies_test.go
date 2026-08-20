@@ -3,6 +3,7 @@ package callback_endpoint
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +17,9 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 )
 
+// What a flow store keyed by a uuid returns for a value that is not one.
+var errMalformedFlowId = errors.New("invalid input syntax for type uuid")
+
 // A front end that forwards a single cookie name -- Firebase Hosting forwards
 // only `__session` -- leaves the callback cookie sharing a name with the session
 // cookie, so the callback is reached with more than one cookie of that name and
@@ -24,6 +28,7 @@ func TestEndpointSeveralCallbackCookies(t *testing.T) {
 	t.Parallel()
 
 	const otherValue = "not-a-flow-id"
+	const malformedValue = "not-a-uuid-at-all"
 
 	successArgs := func() *muxTesting.Args {
 		return &muxTesting.Args{
@@ -76,6 +81,26 @@ func TestEndpointSeveralCallbackCookies(t *testing.T) {
 			expectedPopCount: 2,
 		},
 		{
+			// A store keyed by a uuid answers a value that is not one with a
+			// complaint about its syntax rather than with no rows, and a
+			// session token beside the flow id is exactly such a value.
+			// Stopping there would defeat trying them all.
+			name:             "malformed value before the flow id",
+			cookieValues:     []string{malformedValue, testing2.OauthFlowId},
+			args:             successArgs(),
+			expectedPopCount: 2,
+		},
+		{
+			// A store that is failing outright is still a server error.
+			name:         "every value malformed",
+			cookieValues: []string{malformedValue, malformedValue},
+			args: &muxTesting.Args{
+				ExpectedStatusCode:    http.StatusInternalServerError,
+				ExpectedProblemDetail: &problem_detail.Detail{},
+			},
+			expectedPopCount: 2,
+		},
+		{
 			name: "more values than are tried",
 			cookieValues: []string{
 				otherValue,
@@ -106,6 +131,10 @@ func TestEndpointSeveralCallbackCookies(t *testing.T) {
 			var popCount int
 			testEndpoint.popOauthFlow = func(_ context.Context, id string, _ *sql.DB) (*oauth_flow.Flow, error) {
 				popCount++
+
+				if id == malformedValue {
+					return nil, errMalformedFlowId
+				}
 
 				if id != testing2.OauthFlowId {
 					return nil, sql.ErrNoRows
