@@ -51,6 +51,11 @@ import (
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
+// How many cookies of the callback name are tried. More than one arrives when
+// the front end forwards a single cookie name and the session cookie shares it;
+// a list longer than this is not a browser doing that.
+const maxCallbackCookieValues = 4
+
 // categoryProblemPaths maps an OAuth error category to the canonical path of its
 // problem page. Redirect targets are these paths resolved against the origin
 // passed to Initialize, so the problem endpoints must be mounted at these paths.
@@ -138,28 +143,34 @@ func (e *Endpoint[T]) Initialize(
 			return nil, responseError
 		}
 
-		callbackCookie, err := request.Cookie(e.CallbackCookieName)
-		if err != nil {
-			if errors.Is(err, http.ErrNoCookie) {
-				return nil, &response_error.ResponseError{
-					ProblemDetail: problem_detail.New(
-						http.StatusBadRequest,
-						problem_detail_config.WithDetail("No callback cookie."),
-					),
-				}
-			}
+		// Every cookie of the name is tried, rather than the first. A deployment
+		// behind a front end that forwards only one cookie name -- Firebase
+		// Hosting forwards only `__session` -- has to give this cookie that name
+		// too, which is also the session cookie's. The two remain distinct
+		// cookies, this one host-only and scoped to the callback path and the
+		// session one domain-scoped at "/", but a signed-in browser sends both and
+		// which of them arrives first is not a thing to depend on.
+		callbackCookies := request.CookiesNamed(e.CallbackCookieName)
+		if len(callbackCookies) == 0 {
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("request cookie: %w", err), e.CallbackCookieName),
-			}
-		}
-		if callbackCookie == nil {
-			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.NewWithTrace(nil_error.NewWithInstance("cookie", "callback")),
+				ProblemDetail: problem_detail.New(
+					http.StatusBadRequest,
+					problem_detail_config.WithDetail("No callback cookie."),
+				),
 			}
 		}
 
-		oauthFlowId := callbackCookie.Value
-		if oauthFlowId == "" {
+		var callbackCookieValues []string
+		for _, callbackCookie := range callbackCookies {
+			if callbackCookie == nil || callbackCookie.Value == "" {
+				continue
+			}
+			callbackCookieValues = append(callbackCookieValues, callbackCookie.Value)
+			if len(callbackCookieValues) == maxCallbackCookieValues {
+				break
+			}
+		}
+		if len(callbackCookieValues) == 0 {
 			return nil, &response_error.ResponseError{
 				ClientError: altshiftErrors.NewWithTrace(empty_error.New("callback cookie value")),
 				ProblemDetail: problem_detail.New(
@@ -169,26 +180,51 @@ func (e *Endpoint[T]) Initialize(
 			}
 		}
 
+		if len(callbackCookieValues) > 1 {
+			// Counted, never written out: one of these values is liable to be a
+			// live session token.
+			slog.WarnContext(ctx, "Several callback cookies.", "count", len(callbackCookieValues))
+		}
+
 		dbPopCtx, dbPopCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbPopCtxCancel()
 
-		oauthFlow, err := e.popOauthFlow(dbPopCtx, oauthFlowId, db)
-		if err != nil {
-			wrappedErr := altshiftErrors.New(fmt.Errorf("get oauth flow: %w", err), oauthFlowId)
-			if errors.Is(err, sql.ErrNoRows) {
+		var oauthFlow *oauth_flow.Flow
+		for _, callbackCookieValue := range callbackCookieValues {
+			// A pop that matches nothing removes nothing, so the values can be
+			// tried in turn. None of them is named in an error: see above.
+			poppedOauthFlow, err := e.popOauthFlow(dbPopCtx, callbackCookieValue, db)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					continue
+				}
 				return nil, &response_error.ResponseError{
-					ClientError: wrappedErr,
-					ProblemDetail: problem_detail.New(
-						http.StatusBadRequest,
-						problem_detail_config.WithDetail("No OAuth flow matches the callback cookie value."),
-					),
+					ServerError: altshiftErrors.New(fmt.Errorf("get oauth flow: %w", err)),
 				}
 			}
-			return nil, &response_error.ResponseError{ServerError: wrappedErr}
+			if poppedOauthFlow == nil {
+				return nil, &response_error.ResponseError{
+					ServerError: altshiftErrors.New(nil_error.New("oauth flow")),
+				}
+			}
+
+			oauthFlow = poppedOauthFlow
+			break
 		}
 		if oauthFlow == nil {
+			// Terminal on purpose. The cookie is what binds the callback to the
+			// browser that began the flow; falling back to the state in the URL --
+			// which whoever holds the callback link has -- would hand that binding
+			// away in precisely the case an attacker arranges.
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.New(nil_error.New("oauth flow")),
+				ClientError: altshiftErrors.NewWithTrace(
+					ssoErrors.ErrNoMatchingOauthFlow,
+					len(callbackCookieValues),
+				),
+				ProblemDetail: problem_detail.New(
+					http.StatusBadRequest,
+					problem_detail_config.WithDetail("No OAuth flow matches the callback cookie value."),
+				),
 			}
 		}
 
