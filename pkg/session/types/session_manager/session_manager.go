@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
@@ -38,7 +39,6 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
 	altshiftTime "github.com/altshiftab/utils_go/pkg/time"
 	"github.com/altshiftab/utils_go/pkg/utils"
-	altshiftUuid "github.com/altshiftab/utils_go/pkg/uuid"
 )
 
 const setCookieHeaderName = "Set-Cookie"
@@ -300,7 +300,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 
 	sessionClaims := &session_claims.Claims{
 		Claims: registered_claims.Claims{
-			Id:        strings.Join([]string{authenticationId, altshiftUuid.NewString()}, ":"),
+			Id:        strings.Join([]string{authenticationId, uuid.New().String()}, ":"),
 			Issuer:    m.Issuer,
 			Audience:  audienceClaimString,
 			Subject:   strings.Join([]string{accountId, accountEmailAddress}, ":"),
@@ -651,7 +651,7 @@ func (m *Manager) MintSession(
 
 	sessionClaims := &session_claims.Claims{
 		Claims: registered_claims.Claims{
-			Id:        strings.Join([]string{authenticationId, altshiftUuid.NewString()}, ":"),
+			Id:        strings.Join([]string{authenticationId, uuid.New().String()}, ":"),
 			Issuer:    m.Issuer,
 			Audience:  audienceClaimString,
 			Subject:   strings.Join([]string{accountId, accountEmailAddress}, ":"),

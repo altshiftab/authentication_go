@@ -6,10 +6,10 @@ import (
 	"net/mail"
 	"net/url"
 	"time"
+	"uuid"
 
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/mail/types/message"
-	altshiftUuid "github.com/altshiftab/utils_go/pkg/uuid"
 )
 
 var (
@@ -27,7 +27,7 @@ var (
 	DefaultSubjectBuilder = func(_ *altshiftHttpTypes.AcceptLanguage) string {
 		return "Sign in"
 	}
-	DefaultMakeNonce = altshiftUuid.NewString
+	DefaultMakeNonce = func() string { return uuid.New().String() }
 )
 
 type MessageBuilder func(toAddress *mail.Address, linkUrl *url.URL, expiresAt time.Time, acceptLanguage *altshiftHttpTypes.AcceptLanguage) (*message.Body, error)
