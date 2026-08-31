@@ -6,11 +6,13 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/session"
+	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/dbsc_session_response_processor"
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_refresh_endpoint/dbsc_refresh_endpoint_config"
@@ -141,36 +143,52 @@ func (e *Endpoint) Initialize(
 			return nil, &response_error.ResponseError{ServerError: wrappedErr}
 		}
 
-		// Without a proof of possession, answer with a challenge for the browser to sign.
-		if sessionResponseValue == "" {
+		// issueChallenge mints a challenge, records it against the session and renders the header
+		// carrying it. The browser caches whatever challenge it is given and signs it the next time
+		// a proof is due, so the same header serves both roles the specification gives it: demanding
+		// a proof now, on a 403, and seeding the one to come, on a success.
+		issueChallenge := func() (*muxResponse.HeaderEntry, error) {
 			challenge, err := e.generateDbscChallenge()
 			if err != nil {
-				return nil, &response_error.ResponseError{
-					ServerError: fmt.Errorf("generate challenge: %w", err),
-				}
+				return nil, fmt.Errorf("generate challenge: %w", err)
 			}
 
 			insertDbCtx, insertDbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 			defer insertDbCtxCancel()
 
 			if err := e.insertDbscChallenge(insertDbCtx, challenge, authenticationId, e.ChallengeDuration, db); err != nil {
-				return nil, &response_error.ResponseError{
-					ServerError: altshiftErrors.New(
-						fmt.Errorf("insert dbsc challenge: %w", err),
-						challenge, authenticationId,
-					),
-				}
+				return nil, altshiftErrors.New(
+					fmt.Errorf("insert dbsc challenge: %w", err),
+					challenge, authenticationId,
+				)
+			}
+
+			return &muxResponse.HeaderEntry{
+				Name:  sessionChallengeHeaderName,
+				Value: fmt.Sprintf("\"%s\";id=\"%s\"", challenge, sessionId),
+			}, nil
+		}
+
+		// challengeResponse demands a freshly signed proof. It answers a request that carried none,
+		// and one whose proof named a challenge the store no longer holds -- a browser signing the
+		// challenge it cached, which single use has already spent. The specification's rejection is
+		// this 403 carrying a new challenge, which the browser signs and retries, rather than an
+		// error that leaves it nothing to do.
+		challengeResponse := func() (*muxResponse.Response, *response_error.ResponseError) {
+			challengeHeader, err := issueChallenge()
+			if err != nil {
+				return nil, &response_error.ResponseError{ServerError: err}
 			}
 
 			return &muxResponse.Response{
 				StatusCode: http.StatusForbidden,
-				Headers: []*muxResponse.HeaderEntry{
-					{
-						Name:  sessionChallengeHeaderName,
-						Value: fmt.Sprintf("\"%s\";id=\"%s\"", challenge, sessionId),
-					},
-				},
+				Headers:    []*muxResponse.HeaderEntry{challengeHeader},
 			}, nil
+		}
+
+		// Without a proof of possession, answer with a challenge for the browser to sign.
+		if sessionResponseValue == "" {
+			return challengeResponse()
 		}
 
 		selectDbCtx, selectDbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
@@ -216,10 +234,41 @@ func (e *Endpoint) Initialize(
 				PublicKey:        authenticationPublicKey,
 			},
 		); responseError != nil {
+			// The proof is well formed and correctly signed but names a challenge that is gone.
+			// Nothing is wrong with the session, so it is given a challenge to sign instead of an
+			// error: the browser has one cached from last time and cannot know it is spent.
+			if errors.Is(responseError.ClientError, sessionErrors.ErrNoDbscChallenge) {
+				return challengeResponse()
+			}
 			return nil, responseError
 		}
 
-		return sessionManager.MintSession(authentication, authentication_method.Dbsc, e.SessionDuration)
+		response, responseError := sessionManager.MintSession(authentication, authentication_method.Dbsc, e.SessionDuration)
+		if responseError != nil {
+			return nil, responseError
+		}
+		if response == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
+			}
+		}
+
+		// Seed the challenge for the next refresh. Without it the browser's cached challenge is
+		// always the one just spent, so every refresh begins with a proof that cannot be redeemed
+		// and costs a rejection and a retry; with it the next refresh is a single request. A
+		// failure here is not worth losing a refresh that has already succeeded over -- the browser
+		// falls back to being challenged, which is where it started.
+		if challengeHeader, err := issueChallenge(); err != nil {
+			slog.WarnContext(
+				ctx,
+				"An error occurred when issuing the next DBSC challenge. The next refresh will need one.",
+				slog.Any("error", err),
+			)
+		} else {
+			response.Headers = append(response.Headers, challengeHeader)
+		}
+
+		return response, nil
 	}
 
 	e.Initialized = true

@@ -88,13 +88,34 @@ func TestEndpoint(t *testing.T) {
 		publicKeyMismatch     bool
 		endedAuthentication   bool
 		expiredAuthentication bool
+		spentChallenge        bool
 	}{
 		{
+			// The challenge on the success is what makes the next refresh a single request: the
+			// browser caches it and signs it then, instead of having to be challenged first.
 			name: "valid session response token happy path",
 			args: &muxTesting.Args{
 				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusNoContent,
+				ExpectedHeaders: [][2]string{
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+				},
 			},
+		},
+		{
+			// A browser signing the challenge it cached, which single use has already spent. The
+			// session is sound, so it is challenged afresh rather than given an error: the
+			// specification's rejection is a 403 carrying a new challenge, which it signs and
+			// retries. An error instead leaves it nothing to do but repeat the spent proof.
+			name: "spent challenge is answered with a fresh challenge",
+			args: &muxTesting.Args{
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				ExpectedStatusCode: http.StatusForbidden,
+				ExpectedHeaders: [][2]string{
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+				},
+			},
+			spentChallenge: true,
 		},
 		{
 			// A session that cannot be refreshed again is ended, so the browser stops applying it.
@@ -205,6 +226,11 @@ func TestEndpoint(t *testing.T) {
 					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
 						if authenticationId != loginTesting.AuthenticationId {
 							return nil, fmt.Errorf("authentication id mismatch: got %s, want %s", authenticationId, loginTesting.AuthenticationId)
+						}
+
+						// How the store reports a challenge that has been redeemed already.
+						if tc.spentChallenge {
+							return nil, sql.ErrNoRows
 						}
 
 						expiresAt := time.Now().Add(time.Hour)
