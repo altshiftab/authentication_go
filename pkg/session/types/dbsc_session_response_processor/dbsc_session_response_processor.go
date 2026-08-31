@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
+	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
 	"github.com/altshiftab/authentication_go/pkg/session/types/dbsc_session_response_processor/dbsc_session_response_processor_config"
 	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
@@ -304,14 +305,20 @@ func (p *Processor) consumeChallenge(ctx context.Context, payload map[string]any
 		}
 	}
 
+	// A jti naming no stored challenge is a rejected proof, not a fault of ours: the challenge is
+	// single use, so a browser that replays one it has already spent arrives here, and the store
+	// reports the absence as sql.ErrNoRows rather than as a nil challenge. Answered as a client
+	// error so the browser discards the proof and asks for a fresh challenge; a server error reads
+	// as transient and is retried with the same spent proof, which cannot begin to succeed.
 	dbscChallenge, err := p.popDbscChallenge(ctx, jti, authenticationId, p.Db)
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return &response_error.ResponseError{
 			ServerError: altshiftErrors.New(fmt.Errorf("get challenge: %w", err), jti, authenticationId),
 		}
 	}
-	if dbscChallenge == nil {
+	if err != nil || dbscChallenge == nil {
 		return &response_error.ResponseError{
+			ClientError: altshiftErrors.NewWithTrace(sessionErrors.ErrNoDbscChallenge, jti, authenticationId),
 			ProblemDetail: problem_detail.New(
 				http.StatusBadRequest,
 				problem_detail_config.WithDetail("No challenge was found matching the JTI and authentication ID."),

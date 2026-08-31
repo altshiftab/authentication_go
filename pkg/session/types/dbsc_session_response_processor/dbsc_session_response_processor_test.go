@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
+	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
 	loginTesting "github.com/altshiftab/authentication_go/pkg/session/testing"
 	"net/http"
 	"strings"
@@ -20,6 +22,9 @@ import (
 const (
 	validAudience = "https://example.com/api/session/dbsc/register"
 )
+
+// A store failure that is not an absent row, to tell the two apart.
+var errChallengeStoreFailure = errors.New("connection refused")
 
 func makeKeylessToken(t *testing.T) string {
 	t.Helper()
@@ -143,6 +148,52 @@ func TestProcess(t *testing.T) {
 		if responseError == nil || responseError.ProblemDetail == nil ||
 			responseError.ProblemDetail.Status != http.StatusBadRequest {
 			t.Fatalf("expected bad request, got %+v", responseError)
+		}
+	})
+
+	// The store reports an absent row as sql.ErrNoRows, not as a nil challenge — the case above
+	// never arises in production. Treating it as a server error answered 500 where the proof, not
+	// the service, was at fault, and the browser retried the same spent proof rather than asking
+	// for a fresh challenge.
+	t.Run("challenge row absent", func(t *testing.T) {
+		t.Parallel()
+
+		_, responseError := newProcessor(
+			t,
+			func(_ context.Context, _ string, _ string, _ *sql.DB) (*dbsc_challenge.Challenge, error) {
+				return nil, sql.ErrNoRows
+			},
+		).Process(t.Context(), &Input{TokenString: validToken, AuthenticationId: "auth-id"})
+		if responseError == nil {
+			t.Fatalf("expected a response error")
+		}
+		if responseError.ServerError != nil {
+			t.Errorf("expected no server error, got %v", responseError.ServerError)
+		}
+		if responseError.ProblemDetail == nil || responseError.ProblemDetail.Status != http.StatusBadRequest {
+			t.Fatalf("expected bad request, got %+v", responseError)
+		}
+		if !errors.Is(responseError.ClientError, sessionErrors.ErrNoDbscChallenge) {
+			t.Errorf("expected ErrNoDbscChallenge, got %v", responseError.ClientError)
+		}
+	})
+
+	// The other direction: a store that is actually failing is still a server error, so the fix
+	// above does not turn every database fault into a rejected proof.
+	t.Run("challenge store failure", func(t *testing.T) {
+		t.Parallel()
+
+		_, responseError := newProcessor(
+			t,
+			func(_ context.Context, _ string, _ string, _ *sql.DB) (*dbsc_challenge.Challenge, error) {
+				return nil, errChallengeStoreFailure
+			},
+		).Process(t.Context(), &Input{TokenString: validToken, AuthenticationId: "auth-id"})
+		if responseError == nil {
+			t.Fatalf("expected a response error")
+		}
+		if responseError.ServerError == nil {
+			t.Errorf("expected a server error, got %+v", responseError)
 		}
 	})
 
