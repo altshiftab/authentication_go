@@ -12,6 +12,7 @@ import (
 
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/id_token_endpoint/id_token_endpoint_config"
 	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
@@ -329,23 +330,144 @@ func TestEndpointAlgNoneWithValidKid(t *testing.T) {
 	}, httpServer.URL)
 }
 
+// TestEndpointRequireOrganization covers refusing an account that belongs to no organization —
+// a personal account, which nobody administers and on which therefore no authentication policy can
+// be required. The authorization code flow's callback refuses one; this endpoint mints a session
+// for the same account without going through that flow, so the requirement has to hold here too or
+// the route it is not enforced on is the one an account uses.
+func TestEndpointRequireOrganization(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		options      []id_token_endpoint_config.Option
+		organization string
+		args         *muxTesting.Args
+	}{
+		{
+			name:         "required and present",
+			options:      []id_token_endpoint_config.Option{id_token_endpoint_config.WithRequireOrganization(true)},
+			organization: ssoTesting.Organization,
+			args: &muxTesting.Args{
+				ExpectedStatusCode:     http.StatusNoContent,
+				ExpectedHeadersPresent: []string{"Set-Cookie"},
+			},
+		},
+		{
+			name:    "required and absent",
+			options: []id_token_endpoint_config.Option{id_token_endpoint_config.WithRequireOrganization(true)},
+			args: &muxTesting.Args{
+				ExpectedStatusCode: http.StatusForbidden,
+				ExpectedProblemDetail: &problem_detail.Detail{
+					Detail: "The account does not belong to an organization.",
+				},
+				// No session may be minted for a refused sign-in.
+				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
+			},
+		},
+		{
+			// The default is unchanged: a deployment that has not asked for the requirement keeps
+			// admitting an account without an organization.
+			name:         "not required and absent",
+			organization: "",
+			args: &muxTesting.Args{
+				ExpectedStatusCode:     http.StatusNoContent,
+				ExpectedHeadersPresent: []string{"Set-Cookie"},
+			},
+		},
+	}
+
+	for index, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testEndpoint, err := New[*ssoTesting.ProviderClaims](defaultPath, testCase.options...)
+			if err != nil {
+				t.Fatalf("new endpoint: %v", err)
+			}
+
+			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager); err != nil {
+				t.Fatalf("test endpoint initialize: %v", err)
+			}
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			tokenPayload := map[string]any{
+				"iss": "aux",
+				"aud": "test-client",
+				"iat": time.Now().Add(-1 * time.Minute).Unix(),
+				"nbf": time.Now().Add(-1 * time.Minute).Unix(),
+				// Distinct per case so that no two tokens hash alike; the session manager refuses a
+				// reused id token.
+				"exp":           time.Now().Add(time.Duration(20+index) * time.Minute).Unix(),
+				"verified":      true,
+				"email_address": ssoTesting.EmailAddress,
+				"sub":           ssoTesting.Subject,
+			}
+			if testCase.organization != "" {
+				tokenPayload["organization"] = testCase.organization
+			}
+
+			token := altshiftJwtToken.Token{
+				Header:  map[string]any{"typ": "JWT", "kid": ssoTesting.KeyId},
+				Payload: tokenPayload,
+			}
+			tokenString, err := token.Encode(idTokenMethod)
+			if err != nil {
+				t.Fatalf("token encode: %v", err)
+			}
+
+			testCase.args.Path = testEndpoint.Path
+			testCase.args.Method = testEndpoint.Method
+			testCase.args.Headers = append(
+				testCase.args.Headers,
+				[2]string{"Authorization", fmt.Sprintf("Bearer %s", tokenString)},
+			)
+
+			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
+		})
+	}
+}
+
 func TestNew(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		path    string
-		wantErr bool
+		name                    string
+		path                    string
+		options                 []id_token_endpoint_config.Option
+		wantRequireOrganization bool
+		wantErr                 bool
 	}{
 		{name: "success", path: defaultPath},
 		{name: "empty path", path: "", wantErr: true},
+		{
+			// The options are applied rather than accepted and discarded.
+			name:                    "require organization",
+			path:                    defaultPath,
+			options:                 []id_token_endpoint_config.Option{id_token_endpoint_config.WithRequireOrganization(true)},
+			wantRequireOrganization: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := New[*ssoTesting.ProviderClaims](tt.path)
+			testEndpoint, err := New[*ssoTesting.ProviderClaims](tt.path, tt.options...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("New() err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if testEndpoint.RequireOrganization != tt.wantRequireOrganization {
+				t.Errorf(
+					"RequireOrganization = %v, want %v",
+					testEndpoint.RequireOrganization,
+					tt.wantRequireOrganization,
+				)
 			}
 		})
 	}
