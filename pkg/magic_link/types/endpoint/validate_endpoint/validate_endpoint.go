@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	stdErrors "errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
 	"github.com/altshiftab/utils_go/pkg/errors/types/missing_error"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint/initialization_endpoint"
 	processorPkg "github.com/altshiftab/utils_go/pkg/http/mux/types/processor"
@@ -25,6 +27,7 @@ import (
 	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	jwtErrors "github.com/altshiftab/utils_go/pkg/json/jose/jwt/errors"
@@ -34,6 +37,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
+	"github.com/altshiftab/utils_go/pkg/schema"
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
@@ -224,7 +228,30 @@ func (e *Endpoint) Initialize(
 
 		nonceHash := verifiedToken.NonceHash
 
-		response, responseError := sessionManager.CreateSession(ctx, authentication_method.MagicLink, verifiedToken.EmailAddress, nonceHash[:])
+		emailAddress := verifiedToken.EmailAddress
+
+		// Resolved before the session is created, so that a refusal from the session manager -- an
+		// address with no account, a locked account -- is attributed to the same user as a success.
+		// Attached to the HTTP context rather than to one message, so it reaches the request log
+		// too: this is the request that authenticates the user, and without it the account is not
+		// named until the redirect that follows, on the strength of the cookie this one set.
+		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
+			httpContext.User = &schema.User{Email: emailAddress}
+		}
+
+		// A message of its own rather than the identity provider's: no provider authenticated
+		// anyone here, and the two say different things about what was proved. A magic link proves
+		// possession of a mailbox, with no second factor, no organization and no authentication
+		// context to state -- so the line carries the address the link was issued to and claims
+		// nothing further. The user carries no id: the account exists, but the provider subject
+		// that names one on an SSO sign-in has no counterpart here.
+		slog.InfoContext(
+			ctx,
+			"A magic link authenticated a user.",
+			slog.Group("user", slog.String("email", emailAddress)),
+		)
+
+		response, responseError := sessionManager.CreateSession(ctx, authentication_method.MagicLink, emailAddress, nonceHash[:])
 		if responseError != nil {
 			return nil, responseError
 		}
