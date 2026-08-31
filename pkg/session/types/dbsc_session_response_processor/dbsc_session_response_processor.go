@@ -332,8 +332,12 @@ func (p *Processor) consumeChallenge(ctx context.Context, payload map[string]any
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("dbsc challenge expires at")),
 		}
 	}
+	// Named as its own client error for the same reason an absent one is: the caller answers it with
+	// a fresh challenge rather than an error, since the browser signed the challenge it was given
+	// and cannot know how long it has been holding it.
 	if time.Now().After(*expiresAt) {
 		return &response_error.ResponseError{
+			ClientError: altshiftErrors.NewWithTrace(sessionErrors.ErrExpiredDbscChallenge, jti, authenticationId),
 			ProblemDetail: problem_detail.New(
 				http.StatusBadRequest,
 				problem_detail_config.WithDetail("The challenge has expired."),

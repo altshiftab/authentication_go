@@ -10,4 +10,8 @@ var (
 	// browser replaying one it has already spent produces this; it is the proof that is at fault,
 	// not the store.
 	ErrNoDbscChallenge = errors.New("no dbsc challenge matches the proof")
+	// A refresh proof names a challenge that has passed its expiry. The browser signs the challenge
+	// it cached at the previous refresh, so a gap longer than the challenge's lifetime -- an idle
+	// session, most often -- produces this.
+	ErrExpiredDbscChallenge = errors.New("the dbsc challenge the proof names has expired")
 )

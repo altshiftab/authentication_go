@@ -27,8 +27,18 @@ var (
 	// on essentially every request. Observed against Chrome 151: a three minute session refreshed
 	// every ~65 seconds, a five minute session not at all within seventy seconds, and a thirty
 	// second session on every request.
-	DefaultSessionDuration             = 15 * time.Minute
-	DefaultChallengeDuration           = 5 * time.Minute
+	DefaultSessionDuration = 15 * time.Minute
+	// A challenge is handed out on one refresh and signed on the next, so it has to outlive the gap
+	// between the two. The browser refreshes once the bound cookie has two minutes left, which puts
+	// that gap just under DefaultSessionDuration, and longer whenever the session sits idle: nothing
+	// refreshes until a request needs the cookie. Five minutes, against a fifteen minute session,
+	// expired every challenge before it could be used and cost a round trip on every refresh.
+	//
+	// Twice the session duration covers the ordinary cadence with room to spare. A gap longer than
+	// this is not a failure -- an unredeemable challenge is answered with a fresh one -- so being
+	// wrong here costs a round trip rather than a session. Single use, not this lifetime, is what
+	// stops a proof being replayed.
+	DefaultChallengeDuration           = 2 * DefaultSessionDuration
 	DefaultInsertDbscChallenge         = database.InsertDbscChallenge
 	DefaultSelectRefreshAuthentication = database.SelectRefreshAuthentication
 	DefaultGenerateDbscChallenge       = session.GenerateDbscChallenge

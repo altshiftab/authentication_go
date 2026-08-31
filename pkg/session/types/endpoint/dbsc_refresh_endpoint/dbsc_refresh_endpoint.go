@@ -234,10 +234,14 @@ func (e *Endpoint) Initialize(
 				PublicKey:        authenticationPublicKey,
 			},
 		); responseError != nil {
-			// The proof is well formed and correctly signed but names a challenge that is gone.
-			// Nothing is wrong with the session, so it is given a challenge to sign instead of an
-			// error: the browser has one cached from last time and cannot know it is spent.
-			if errors.Is(responseError.ClientError, sessionErrors.ErrNoDbscChallenge) {
+			// The proof is well formed and correctly signed but names a challenge that cannot be
+			// redeemed: spent, or held past its expiry. Nothing is wrong with the session, so it is
+			// given a challenge to sign instead of an error -- the browser signs the one it cached
+			// at the previous refresh and can know neither that it was spent nor how long it has
+			// been holding it. Every unredeemable challenge has to answer this way; one that does
+			// not leaves the browser repeating a proof that can never be accepted.
+			if errors.Is(responseError.ClientError, sessionErrors.ErrNoDbscChallenge) ||
+				errors.Is(responseError.ClientError, sessionErrors.ErrExpiredDbscChallenge) {
 				return challengeResponse()
 			}
 			return nil, responseError

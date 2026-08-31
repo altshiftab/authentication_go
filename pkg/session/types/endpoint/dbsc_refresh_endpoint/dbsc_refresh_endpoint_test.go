@@ -89,6 +89,7 @@ func TestEndpoint(t *testing.T) {
 		endedAuthentication   bool
 		expiredAuthentication bool
 		spentChallenge        bool
+		expiredChallenge      bool
 	}{
 		{
 			// The challenge on the success is what makes the next refresh a single request: the
@@ -116,6 +117,21 @@ func TestEndpoint(t *testing.T) {
 				},
 			},
 			spentChallenge: true,
+		},
+		{
+			// The other way a cached challenge stops being redeemable. The browser holds one from
+			// the previous refresh and cannot know how long that has been, so an expired challenge
+			// has to be answered exactly as a spent one is; a plain error leaves it repeating a
+			// proof that can never be accepted.
+			name: "expired challenge is answered with a fresh challenge",
+			args: &muxTesting.Args{
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				ExpectedStatusCode: http.StatusForbidden,
+				ExpectedHeaders: [][2]string{
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+				},
+			},
+			expiredChallenge: true,
 		},
 		{
 			// A session that cannot be refreshed again is ended, so the browser stops applying it.
@@ -234,6 +250,9 @@ func TestEndpoint(t *testing.T) {
 						}
 
 						expiresAt := time.Now().Add(time.Hour)
+						if tc.expiredChallenge {
+							expiresAt = time.Now().Add(-time.Hour)
+						}
 						return &dbsc_challenge.Challenge{
 							Authentication: &authenticationPkg.Authentication{Id: authenticationId},
 							Challenge:      []byte(challenge),
