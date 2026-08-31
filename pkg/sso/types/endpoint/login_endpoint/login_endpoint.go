@@ -1,3 +1,16 @@
+// Package login_endpoint starts the authorization code flow: it mints the state and the PKCE code
+// verifier, records them as an oauth flow, and redirects the user to the provider.
+//
+// The "amr" claim, which callback_endpoint reads to decide whether a sign-in was multi-factor, is
+// not requested here. It is a property of the registered application rather than of the individual
+// authorization request, and no provider honours it as a "claims" request parameter:
+//
+//   - Microsoft. Add "amr" to the app registration's optional id token claims, either under Token
+//     configuration in the portal or by patching optionalClaims.idToken over Microsoft Graph. It is
+//     a v2.0-specific optional claim, so it is absent from the token until it is configured, and it
+//     is absent from the discovery document's claims_supported whether configured or not.
+//   - Google. Not available at all. Google's id token has no "amr" claim, so GoogleClaims.Amr is
+//     always empty and no configuration changes that.
 package login_endpoint
 
 import (
@@ -30,7 +43,6 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	altshiftNet "github.com/altshiftab/utils_go/pkg/net"
 	altshiftOauth2 "github.com/altshiftab/utils_go/pkg/oauth2"
-	"github.com/altshiftab/utils_go/pkg/oauth2/types/auth_code_option"
 	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 )
@@ -66,10 +78,9 @@ type Endpoint struct {
 	CallbackPath       string
 	OauthFlowDuration  time.Duration
 
-	makeState                             func() (string, error)
-	makeCodeVerifier                      func() (string, error)
-	insertOauthFlow                       func(ctx context.Context, state string, codeVerifier string, redirectUrl string, expirationDuration time.Duration, database *sql.DB) (*oauth_flow.Flow, error)
-	RequestAuthenticationMethodReferences bool
+	makeState        func() (string, error)
+	makeCodeVerifier func() (string, error)
+	insertOauthFlow  func(ctx context.Context, state string, codeVerifier string, redirectUrl string, expirationDuration time.Duration, database *sql.DB) (*oauth_flow.Flow, error)
 }
 
 func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.Config, db *sql.DB) error {
@@ -171,13 +182,11 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.C
 			}
 		}
 
+		// No "claims" request parameter is sent. Neither provider answers one: Google ignores it
+		// outright, and Microsoft fails the whole authorization with AADSTS50000 on the spec's
+		// voluntary form, {"id_token":{"amr":null}}. The "amr" claim is turned on where the
+		// application is registered instead -- see the package comment.
 		authCodeOptions := altshiftOauth2.S256ChallengeOption(codeVerifier)
-		if e.RequestAuthenticationMethodReferences {
-			authCodeOptions = append(
-				authCodeOptions,
-				auth_code_option.New("claims", authenticationMethodReferencesClaimsParameter),
-			)
-		}
 
 		callbackCookie := http.Cookie{
 			Name:     e.CallbackCookieName,
@@ -209,12 +218,6 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.C
 	return nil
 }
 
-// authenticationMethodReferencesClaimsParameter asks the provider to include the "amr" claim in the
-// id token. Google omits it unless asked, and may omit it even then; Microsoft supplies it for
-// OpenID Connect applications. It is requested as voluntary so that a provider unable to supply it
-// still authenticates the user, leaving the decision to the caller.
-const authenticationMethodReferencesClaimsParameter = `{"id_token":{"amr":null}}`
-
 func New(path, callbackPath string, options ...login_endpoint_config.Option) (*Endpoint, error) {
 	if path == "" {
 		return nil, altshiftErrors.NewWithTrace(empty_error.New("path"))
@@ -239,8 +242,6 @@ func New(path, callbackPath string, options ...login_endpoint_config.Option) (*E
 		CallbackCookieName: config.CallbackCookieName,
 		CallbackPath:       callbackPath,
 		OauthFlowDuration:  config.OauthFlowDuration,
-
-		RequestAuthenticationMethodReferences: config.RequestAuthenticationMethodReferences,
 
 		makeState:        makeState,
 		makeCodeVerifier: makeCodeVerifier,
