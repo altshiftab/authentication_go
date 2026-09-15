@@ -177,6 +177,16 @@ func New(
 						"azp":   setting.Optional,
 						"roles": setting.Required,
 					},
+					// How the holder came by the token is part of what the token is authorized
+					// for, not merely something it reports: an authorizer built for browser
+					// sessions refuses a token minted against a registered key, and one built for
+					// those keys refuses a session cookie presented as a bearer token. Neither
+					// needs a separate audience to say so.
+					Expected: &session_claims_validator.ExpectedClaims{
+						AuthenticationMethodsComparer: comparer.NewEqualComparer(
+							config.AuthenticationMethods...,
+						),
+					},
 				},
 			),
 		),

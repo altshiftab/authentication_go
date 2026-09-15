@@ -873,3 +873,118 @@ func TestManager_MintSession(t *testing.T) {
 		})
 	}
 }
+
+/*
+ * TestManager_MintToken covers what MintSession's caller does not want: the token on its own, for a
+ * holder that has no cookie to put it in.
+ *
+ * The refusals are the same ones MintSession makes, and are asserted here as well as there because
+ * this is now where they live -- a token minted against a key must be refused for an authentication
+ * that has ended or an account that is locked, and the caller that mints it never touches a cookie.
+ */
+func TestManager_MintToken(t *testing.T) {
+	t.Parallel()
+
+	signer := newTestSigner(t)
+
+	testCases := []struct {
+		name           string
+		mutate         func(*authenticationPkg.Authentication)
+		wantOk         bool
+		wantStatusCode int
+	}{
+		{name: "success", wantOk: true},
+		{
+			name:           "ended authentication",
+			mutate:         func(a *authenticationPkg.Authentication) { a.Ended = true },
+			wantStatusCode: 400,
+		},
+		{
+			name:           "expired authentication",
+			mutate:         func(a *authenticationPkg.Authentication) { a.ExpiresAt = ptrTime(time.Now().Add(-time.Hour)) },
+			wantStatusCode: 400,
+		},
+		{
+			name:           "locked account",
+			mutate:         func(a *authenticationPkg.Authentication) { a.Account.Locked = true },
+			wantStatusCode: 403,
+		},
+		{
+			name:   "missing account identity",
+			mutate: func(a *authenticationPkg.Authentication) { a.Account.EmailAddress = "" },
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			authentication := newAuthentication()
+			if testCase.mutate != nil {
+				testCase.mutate(authentication)
+			}
+
+			m := newManager(t, signer, &stubs{account: newAccount(), authentication: authentication})
+			defer m.Db.Close()
+
+			sessionToken, sessionTokenString, respErr := m.MintToken(
+				authentication,
+				authentication_method.ApiKey,
+				15*time.Minute,
+			)
+
+			if !testCase.wantOk {
+				if respErr == nil {
+					t.Fatalf("expected a response error")
+				}
+				if sessionToken != nil || sessionTokenString != "" {
+					t.Error("A token came back alongside the refusal.")
+				}
+				if problemDetail := respErr.ProblemDetail; problemDetail != nil {
+					if problemDetail.Status != testCase.wantStatusCode {
+						t.Errorf("got status %d, expected %d", problemDetail.Status, testCase.wantStatusCode)
+					}
+				} else if testCase.wantStatusCode != 0 {
+					t.Errorf("expected a problem detail with status %d", testCase.wantStatusCode)
+				}
+				return
+			}
+
+			if respErr != nil {
+				t.Fatalf("mint token: %+v", respErr)
+			}
+			if sessionToken == nil {
+				t.Fatal("The token is nil.")
+			}
+			if sessionTokenString == "" {
+				t.Fatal("The encoded token is empty.")
+			}
+
+			// The method asked for is what the token says it was: it is the whole of what keeps
+			// this token out of the endpoints meant for a signed-in person.
+			if methods := sessionToken.Claims.AuthenticationMethods; len(methods) != 1 ||
+				methods[0] != authentication_method.ApiKey {
+				t.Errorf("authentication methods: got %v, want [%s]", methods, authentication_method.ApiKey)
+			}
+
+			// And the rest is the session token every consumer already knows how to read.
+			if sessionToken.AuthenticationId != authentication.Id {
+				t.Errorf("authentication id: got %q, want %q", sessionToken.AuthenticationId, authentication.Id)
+			}
+			if sessionToken.SubjectId != authentication.Account.Id {
+				t.Errorf("subject id: got %q, want %q", sessionToken.SubjectId, authentication.Account.Id)
+			}
+			if sessionToken.SubjectEmailAddress != authentication.Account.EmailAddress {
+				t.Errorf("subject email: got %q", sessionToken.SubjectEmailAddress)
+			}
+
+			expiresAt := sessionToken.Claims.ExpiresAt
+			if expiresAt == nil {
+				t.Fatal("The token carries no expiry.")
+			}
+			if expected := time.Now().Add(15 * time.Minute); expiresAt.Time.Sub(expected).Abs() > time.Minute {
+				t.Errorf("token expiry %s, expected roughly %s", expiresAt.Time, expected)
+			}
+		})
+	}
+}

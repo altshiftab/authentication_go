@@ -61,13 +61,17 @@ type Manager struct {
 	insertDbscChallenge       func(ctx context.Context, challenge string, authenticationId string, expirationDuration time.Duration, db *sql.DB) error
 }
 
-// clientMetadataFromContext derives the client information persisted with an
+// ClientMetadataFromContext derives the client information persisted with an
 // authentication from the HTTP context carried on ctx. The client IP is taken
 // from the first X-Forwarded-For entry (the real client behind the GCP load
 // balancer), falling back to RemoteAddr; geo fields come from the load
 // balancer's X-Client-Geo-* headers. It returns nil when no HTTP context is
 // present (e.g. non-HTTP callers), which InsertAuthentication stores as NULLs.
-func clientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMetadata {
+//
+// Exported because an authentication is not only written here: a token minted against a key the
+// account registered records where it was asked for the same way a sign-in does, and reading the
+// headers a second time elsewhere would be a second answer to one question.
+func ClientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMetadata {
 	httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext)
 	if !ok || httpContext == nil {
 		return nil
@@ -211,7 +215,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 		}
 	}
 
-	clientMetadata := clientMetadataFromContext(ctx)
+	clientMetadata := ClientMetadataFromContext(ctx)
 
 	insertDbCtx, insertDbCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 	defer insertDbCancel()
@@ -509,68 +513,68 @@ func (m *Manager) RefreshSession(
 	}, nil
 }
 
-// MintSession issues a session for an authentication that presents no session token, and returns the
-// response carrying it as a cookie. A DBSC refresh arrives without the bound cookie — that is what
-// triggers it — so there is no previous token whose claims could be carried over, as RefreshSession
-// does. The authentication is verified the same way: it must not have ended or expired, and the
-// account must not be locked.
+// MintToken issues a session token for an authentication that presents none, and returns it
+// with its encoded form. The authentication is verified first: it must not have ended or
+// expired, and the account must not be locked.
 //
-// As elsewhere, the cookie expires with the token when the session is device bound, so that the
-// browser keeps refreshing it.
-func (m *Manager) MintSession(
+// Separate from MintSession because not every holder of a session is a browser. A token minted
+// against a key the account registered is carried in a header by a script, and has no cookie to
+// be put in -- while everything that decides what the token says, down to the shape of "sub"
+// and "jti", is the same and belongs in one place rather than in a copy per caller.
+func (m *Manager) MintToken(
 	authentication *authenticationPkg.Authentication,
 	authenticationMethod string,
 	sessionDuration time.Duration,
-) (*response.Response, *response_error.ResponseError) {
+) (*session_token.Token, string, *response_error.ResponseError) {
 	if authentication == nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication")),
 		}
 	}
 
 	if authenticationMethod == "" {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication method")),
 		}
 	}
 
 	signer := m.Signer
 	if utils.IsNil(signer) {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("signer")),
 		}
 	}
 
 	audience := m.CookieDomain
 	if audience == "" {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(empty_error.New("audience (cookie domain)")),
 		}
 	}
 
 	authenticationId := authentication.Id
 	if authenticationId == "" {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication id")),
 		}
 	}
 
 	authenticationExpiresAt := authentication.ExpiresAt
 	if authenticationExpiresAt == nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication expires at")),
 		}
 	}
 
 	authenticationCreatedAt := authentication.CreatedAt
 	if authenticationCreatedAt == nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication created at")),
 		}
 	}
 
 	if authentication.Ended {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			Headers: []*response.HeaderEntry{{Name: "Clear-Site-Data", Value: `"cookies"`}},
 			ProblemDetail: problem_detail.New(
 				http.StatusBadRequest,
@@ -580,7 +584,7 @@ func (m *Manager) MintSession(
 	}
 
 	if time.Now().After(*authenticationExpiresAt) {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ProblemDetail: problem_detail.New(
 				http.StatusBadRequest,
 				problem_detail_config.WithDetail("The session's authentication has expired."),
@@ -590,13 +594,13 @@ func (m *Manager) MintSession(
 
 	account := authentication.Account
 	if account == nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication account")),
 		}
 	}
 
 	if account.Locked {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ProblemDetail: problem_detail.New(
 				http.StatusForbidden,
 				problem_detail_config.WithDetail("The account is locked."),
@@ -606,14 +610,14 @@ func (m *Manager) MintSession(
 
 	accountId := account.Id
 	if accountId == "" {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account id")),
 		}
 	}
 
 	accountEmailAddress := account.EmailAddress
 	if accountEmailAddress == "" {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account email address")),
 		}
 	}
@@ -621,12 +625,12 @@ func (m *Manager) MintSession(
 	var authorizedParty string
 	if customer := account.Customer; customer != nil {
 		if customer.Id == "" {
-			return nil, &response_error.ResponseError{
+			return nil, "", &response_error.ResponseError{
 				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account customer id")),
 			}
 		}
 		if customer.Name == "" {
-			return nil, &response_error.ResponseError{
+			return nil, "", &response_error.ResponseError{
 				ServerError: altshiftErrors.NewWithTrace(empty_error.New("authentication account customer name")),
 			}
 		}
@@ -635,14 +639,14 @@ func (m *Manager) MintSession(
 
 	sessionExpiresAt := altshiftTime.Min(new(time.Now().Add(sessionDuration)), authenticationExpiresAt)
 	if sessionExpiresAt == nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session expires at")),
 		}
 	}
 
 	audienceClaimString, err := claim_strings.Convert(audience)
 	if err != nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.New(fmt.Errorf("claim strings convert: %w", err), audience),
 		}
 	}
@@ -667,9 +671,45 @@ func (m *Manager) MintSession(
 
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
-		return nil, &response_error.ResponseError{
+		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
 		}
+	}
+	if sessionToken == nil {
+		return nil, "", &response_error.ResponseError{
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token")),
+		}
+	}
+
+	sessionTokenString, err := sessionToken.Encode(signer)
+	if err != nil {
+		return nil, "", &response_error.ResponseError{
+			ServerError: altshiftErrors.New(fmt.Errorf("session token encode: %w", err), sessionToken),
+		}
+	}
+
+	return sessionToken, sessionTokenString, nil
+}
+
+// MintSession issues a session for an authentication that presents no session token, and returns the
+// response carrying it as a cookie. A DBSC refresh arrives without the bound cookie -- that is what
+// triggers it -- so there is no previous token whose claims could be carried over, as RefreshSession
+// does.
+//
+// As elsewhere, the cookie expires with the token when the session is device bound, so that the
+// browser keeps refreshing it.
+func (m *Manager) MintSession(
+	authentication *authenticationPkg.Authentication,
+	authenticationMethod string,
+	sessionDuration time.Duration,
+) (*response.Response, *response_error.ResponseError) {
+	sessionToken, sessionTokenString, responseError := m.MintToken(
+		authentication,
+		authenticationMethod,
+		sessionDuration,
+	)
+	if responseError != nil {
+		return nil, responseError
 	}
 	if sessionToken == nil {
 		return nil, &response_error.ResponseError{
@@ -677,16 +717,30 @@ func (m *Manager) MintSession(
 		}
 	}
 
-	sessionTokenString, err := sessionToken.Encode(signer)
-	if err != nil {
+	authenticationExpiresAt := authentication.ExpiresAt
+	if authenticationExpiresAt == nil {
 		return nil, &response_error.ResponseError{
-			ServerError: altshiftErrors.New(fmt.Errorf("session token encode: %w", err), sessionToken),
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication expires at")),
 		}
 	}
 
 	cookieExpiresAt := *authenticationExpiresAt
 	if authenticationMethod == authentication_method.Dbsc {
-		cookieExpiresAt = *sessionExpiresAt
+		sessionClaims := sessionToken.Claims
+		if sessionClaims == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("session claims")),
+			}
+		}
+
+		sessionExpiresAt := sessionClaims.ExpiresAt
+		if sessionExpiresAt == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("session expires at")),
+			}
+		}
+
+		cookieExpiresAt = sessionExpiresAt.Time
 	}
 
 	sessionCookie, err := session_cookie.New(

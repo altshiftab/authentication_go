@@ -4,6 +4,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
+
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
 )
 
@@ -23,6 +25,15 @@ func TestNew(t *testing.T) {
 	}
 	if config.AllowedRoles != nil || config.AllowedTenantId != "" || config.SuperAdminRoles != nil {
 		t.Errorf("expected zero role config, got %+v", config)
+	}
+
+	// The methods a browser session is come by, and nothing else: a default that admits whatever
+	// the library learns to mint next would widen every authorizer already written.
+	if !slices.Equal(config.AuthenticationMethods, DefaultAuthenticationMethods) {
+		t.Errorf("authentication methods: got %v, want %v", config.AuthenticationMethods, DefaultAuthenticationMethods)
+	}
+	if slices.Contains(config.AuthenticationMethods, authentication_method.ApiKey) {
+		t.Error("The default methods admit an API key's token.")
 	}
 }
 
@@ -51,6 +62,17 @@ func TestOptions(t *testing.T) {
 			check: func(t *testing.T, config *Config) {
 				if config.TokenExtractor != tokenExtractor {
 					t.Errorf("token extractor: got %v", config.TokenExtractor)
+				}
+			},
+		},
+		{
+			name:   "with authentication methods",
+			option: WithAuthenticationMethods(authentication_method.ApiKey),
+			check: func(t *testing.T, config *Config) {
+				// Replaced rather than added to: an authorizer for API keys and nothing else is as
+				// much a thing to want as one for both.
+				if !slices.Equal(config.AuthenticationMethods, []string{authentication_method.ApiKey}) {
+					t.Errorf("authentication methods: got %v", config.AuthenticationMethods)
 				}
 			},
 		},

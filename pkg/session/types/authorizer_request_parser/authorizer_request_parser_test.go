@@ -40,6 +40,12 @@ const (
 )
 
 func makeCookie(signer altshiftCryptoInterfaces.NamedSigner) string {
+	return makeCookieWithMethods(signer, authentication_method.Sso)
+}
+
+// makeCookieWithMethods is makeCookie with the "amr" the token carries spelled out, which is what
+// decides whether an authorizer accepts it at all.
+func makeCookieWithMethods(signer altshiftCryptoInterfaces.NamedSigner, methods ...string) string {
 	if utils.IsNil(signer) {
 		panic(altshiftErrors.NewWithTrace(nil_error.New("signer")))
 	}
@@ -56,7 +62,7 @@ func makeCookie(signer altshiftCryptoInterfaces.NamedSigner) string {
 			IssuedAt:  numeric_date.New(time.Now()),
 			Id:        strings.Join([]string{authenticationId, sessionId}, ":"),
 		},
-		AuthenticationMethods: []string{authentication_method.Sso},
+		AuthenticationMethods: methods,
 		// NOTE: Not checked anywhere.
 		AuthenticatedAt: numeric_date.New(time.Now()),
 		AuthorizedParty: fmt.Sprintf("%s:test-tenant-name", tenantId),
@@ -311,6 +317,148 @@ func TestNew(t *testing.T) {
 
 			if diff := altshiftTestingCmp.Diff(testCase.want, got, opts...); diff != "" {
 				t.Errorf("parser mismatch (-expected +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+/*
+ * How the holder came by a token decides which authorizers take it. A browser session and a token
+ * minted against a key the account registered are both valid session tokens signed by the same
+ * key, for the same account, with the same audience: the "amr" claim is the whole of what separates
+ * them, so this is what keeps an API key out of the endpoints meant for a signed-in person, and a
+ * session cookie out of the endpoints meant for API keys.
+ *
+ * The default set matters as much as the option: an authorizer written before a method existed
+ * refuses it, rather than admitting whatever the library learns to mint next.
+ */
+func TestParser_ParseAuthenticationMethods(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("ed25519 generate key: %v", err)
+	}
+
+	method := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+
+	testCases := []struct {
+		name string
+		// The "amr" the token carries.
+		tokenMethods []string
+		// The methods the authorizer is built for; none means the default set.
+		parserMethods []string
+		accepted      bool
+	}{
+		{
+			name:         "a browser session, by an authorizer that says nothing",
+			tokenMethods: []string{authentication_method.Sso},
+			accepted:     true,
+		},
+		{
+			name:         "a refreshed session, by an authorizer that says nothing",
+			tokenMethods: []string{authentication_method.Refresh},
+			accepted:     true,
+		},
+		{
+			name:         "a device bound session, by an authorizer that says nothing",
+			tokenMethods: []string{authentication_method.Dbsc},
+			accepted:     true,
+		},
+		{
+			name:         "a magic link session, by an authorizer that says nothing",
+			tokenMethods: []string{authentication_method.MagicLink},
+			accepted:     true,
+		},
+		{
+			// The reason the default is an allow-list: this authorizer was written before API
+			// keys existed and refuses one without having been told to.
+			name:         "an api key token, by an authorizer that says nothing",
+			tokenMethods: []string{authentication_method.ApiKey},
+			accepted:     false,
+		},
+		{
+			name:          "an api key token, by an authorizer built for it",
+			tokenMethods:  []string{authentication_method.ApiKey},
+			parserMethods: []string{authentication_method.ApiKey},
+			accepted:      true,
+		},
+		{
+			// The other direction: a session cookie's value pasted into a bearer header is still
+			// refused by the endpoints that take API keys.
+			name:          "a browser session, by an authorizer built for api keys",
+			tokenMethods:  []string{authentication_method.Sso},
+			parserMethods: []string{authentication_method.ApiKey},
+			accepted:      false,
+		},
+		{
+			name:          "either, by an authorizer built for both",
+			tokenMethods:  []string{authentication_method.ApiKey},
+			parserMethods: []string{authentication_method.Sso, authentication_method.ApiKey},
+			accepted:      true,
+		},
+		{
+			// One match is enough, as the claim is a list of what was done.
+			name:          "a token carrying several methods, one of them accepted",
+			tokenMethods:  []string{authentication_method.ApiKey, authentication_method.Sso},
+			parserMethods: []string{authentication_method.Sso},
+			accepted:      true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			request.Header.Set("Cookie", makeCookieWithMethods(method, testCase.tokenMethods...))
+
+			options := []authorizer_request_parser_config.Option{}
+			if testCase.parserMethods != nil {
+				options = append(
+					options,
+					authorizer_request_parser_config.WithAuthenticationMethods(testCase.parserMethods...),
+				)
+			}
+
+			parser, err := New(method, issuer, audience, options...)
+			if err != nil {
+				t.Fatalf("new parser: %v", err)
+			}
+
+			sessionToken, gotResponseError := parser.Parse(request)
+
+			if testCase.accepted {
+				if gotResponseError != nil {
+					t.Fatalf("expected the token to be accepted, got %+v", gotResponseError)
+				}
+				if sessionToken == nil {
+					t.Fatal("The token was accepted but none came back.")
+				}
+				return
+			}
+
+			if gotResponseError == nil {
+				t.Fatal("The token was accepted by an authorizer that does not take its method.")
+			}
+			if sessionToken != nil {
+				t.Error("A token came back alongside the refusal.")
+			}
+
+			problemDetail := gotResponseError.ProblemDetail
+			if problemDetail == nil {
+				t.Fatalf("expected a problem detail, got %+v", gotResponseError)
+			}
+			// Refused as a token that does not authenticate, not as a fault: nothing is wrong with
+			// the request beyond the credential it carries.
+			if problemDetail.Status != http.StatusUnauthorized {
+				t.Errorf("got status %d, want %d", problemDetail.Status, http.StatusUnauthorized)
+			}
+			if gotResponseError.ServerError != nil {
+				t.Errorf("got a server error: %v", gotResponseError.ServerError)
 			}
 		})
 	}
