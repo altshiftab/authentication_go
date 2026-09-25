@@ -104,6 +104,42 @@ func (t *Token) Encode(signer interfaces.NamedSigner) (string, error) {
 	return tokenString, nil
 }
 
+// VerifyAuthentication reports whether an authentication may still stand behind a session: it must
+// not have ended or expired, and its account must not be locked. The failures are
+// errors.ErrEndedAuthentication, errors.ErrExpiredAuthentication and errors.ErrLockedAccount.
+//
+// It is the one statement of those rules, for a refresh deciding whether to issue a new token and
+// for a check deciding whether a token already issued may still be acted on.
+func VerifyAuthentication(authentication *authenticationPkg.Authentication) error {
+	if authentication == nil {
+		return altshiftErrors.NewWithTrace(nil_error.New("authentication"))
+	}
+
+	authenticationExpiresAt := authentication.ExpiresAt
+	if authenticationExpiresAt == nil {
+		return altshiftErrors.NewWithTrace(nil_error.New("authentication expires at"))
+	}
+
+	if authentication.Ended {
+		return errors.ErrEndedAuthentication
+	}
+
+	if time.Now().After(*authenticationExpiresAt) {
+		return errors.ErrExpiredAuthentication
+	}
+
+	account := authentication.Account
+	if account == nil {
+		return altshiftErrors.NewWithTrace(nil_error.New("authentication account"))
+	}
+
+	if account.Locked {
+		return errors.ErrLockedAccount
+	}
+
+	return nil
+}
+
 func (t *Token) Refresh(
 	authentication *authenticationPkg.Authentication,
 	sessionDuration time.Duration,
@@ -122,27 +158,13 @@ func (t *Token) Refresh(
 		return nil, altshiftErrors.NewWithTrace(nil_error.New("session token claims"))
 	}
 
+	if err := VerifyAuthentication(authentication); err != nil {
+		return nil, err
+	}
+
+	// VerifyAuthentication has established both.
 	authenticationExpiresAt := authentication.ExpiresAt
-	if authenticationExpiresAt == nil {
-		return nil, altshiftErrors.NewWithTrace(nil_error.New("authentication expires at"))
-	}
-
-	if authentication.Ended {
-		return nil, errors.ErrEndedAuthentication
-	}
-
-	if time.Now().After(*authenticationExpiresAt) {
-		return nil, errors.ErrExpiredAuthentication
-	}
-
 	account := authentication.Account
-	if account == nil {
-		return nil, altshiftErrors.NewWithTrace(nil_error.New("authentication account"))
-	}
-
-	if account.Locked {
-		return nil, errors.ErrLockedAccount
-	}
 
 	newSessionExpiresAtTime := altshiftTime.Min(authenticationExpiresAt, new(time.Now().Add(sessionDuration)))
 	if newSessionExpiresAtTime == nil {

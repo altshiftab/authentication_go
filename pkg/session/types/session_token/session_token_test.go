@@ -384,3 +384,86 @@ func TestRefresh(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifyAuthentication(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name           string
+		authentication func() *authenticationPkg.Authentication
+		wantErr        bool
+		expectedErr    error
+	}{
+		{
+			name:           "standing",
+			authentication: func() *authenticationPkg.Authentication { return makeAuthentication(time.Now().Add(time.Hour)) },
+		},
+		{
+			name:           "nil authentication",
+			authentication: func() *authenticationPkg.Authentication { return nil },
+			wantErr:        true,
+		},
+		{
+			name: "nil expires at",
+			authentication: func() *authenticationPkg.Authentication {
+				return &authenticationPkg.Authentication{Account: &accountPkg.Account{}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "ended",
+			authentication: func() *authenticationPkg.Authentication {
+				authentication := makeAuthentication(time.Now().Add(time.Hour))
+				authentication.Ended = true
+				return authentication
+			},
+			wantErr:     true,
+			expectedErr: sessionErrors.ErrEndedAuthentication,
+		},
+		{
+			name:           "expired",
+			authentication: func() *authenticationPkg.Authentication { return makeAuthentication(time.Now().Add(-time.Hour)) },
+			wantErr:        true,
+			expectedErr:    sessionErrors.ErrExpiredAuthentication,
+		},
+		{
+			name: "nil account",
+			authentication: func() *authenticationPkg.Authentication {
+				authentication := makeAuthentication(time.Now().Add(time.Hour))
+				authentication.Account = nil
+				return authentication
+			},
+			wantErr: true,
+		},
+		{
+			name: "locked",
+			authentication: func() *authenticationPkg.Authentication {
+				authentication := makeAuthentication(time.Now().Add(time.Hour))
+				authentication.Account.Locked = true
+				return authentication
+			},
+			wantErr:     true,
+			expectedErr: sessionErrors.ErrLockedAccount,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := VerifyAuthentication(testCase.authentication())
+			if !testCase.wantErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("expected error")
+			}
+			if testCase.expectedErr != nil && !errors.Is(err, testCase.expectedErr) {
+				t.Errorf("expected %v, got %v", testCase.expectedErr, err)
+			}
+		})
+	}
+}

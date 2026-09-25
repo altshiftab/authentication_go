@@ -2,6 +2,7 @@ package authorizer_request_parser
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie"
@@ -459,6 +461,59 @@ func TestParser_ParseAuthenticationMethods(t *testing.T) {
 			}
 			if gotResponseError.ServerError != nil {
 				t.Errorf("got a server error: %v", gotResponseError.ServerError)
+			}
+		})
+	}
+}
+
+func TestParser_Admits(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		allowedRoles    []string
+		allowedTenantId string
+		superAdminRoles []string
+		roles           []string
+		tenantId        string
+		expectedErr     error
+	}{
+		{name: "no restrictions"},
+		{name: "role allowed", allowedRoles: []string{"a", role}, roles: []string{role}},
+		{name: "no role allowed", allowedRoles: []string{"a"}, roles: []string{role}, expectedErr: sessionErrors.ErrRolesNotAllowed},
+		{name: "no roles at all", allowedRoles: []string{"a"}, expectedErr: sessionErrors.ErrRolesNotAllowed},
+		{name: "tenant allowed", allowedTenantId: tenantId, tenantId: tenantId},
+		{name: "tenant not allowed", allowedTenantId: tenantId, tenantId: "other", expectedErr: sessionErrors.ErrTenantNotAllowed},
+		{name: "no tenant", allowedTenantId: tenantId, expectedErr: sessionErrors.ErrTenantNotAllowed},
+		{
+			name:            "super admin passes tenant and roles",
+			allowedRoles:    []string{"a"},
+			allowedTenantId: tenantId,
+			superAdminRoles: []string{"super"},
+			roles:           []string{"super"},
+			tenantId:        "other",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			parser := &Parser{
+				AllowedRoles:    testCase.allowedRoles,
+				AllowedTenantId: testCase.allowedTenantId,
+				SuperAdminRoles: testCase.superAdminRoles,
+			}
+
+			err := parser.Admits(testCase.roles, testCase.tenantId)
+			if testCase.expectedErr == nil {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, testCase.expectedErr) {
+				t.Errorf("expected %v, got %v", testCase.expectedErr, err)
 			}
 		})
 	}

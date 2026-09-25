@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 
+	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
@@ -81,18 +82,8 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 		}
 	}
 
-	if superAdminRoles := p.SuperAdminRoles; len(superAdminRoles) != 0 {
-		for _, role := range sessionToken.Roles {
-			if slices.Contains(superAdminRoles, role) {
-				return sessionToken, nil
-			}
-		}
-	}
-
-	var allowed bool
-
-	if allowedTenantId := p.AllowedTenantId; allowedTenantId != "" {
-		if sessionToken.TenantId != allowedTenantId {
+	if err := p.Admits(sessionToken.Roles, sessionToken.TenantId); err != nil {
+		if errors.Is(err, sessionErrors.ErrTenantNotAllowed) {
 			return nil, &response_error.ResponseError{
 				ProblemDetail: problem_detail.New(
 					http.StatusForbidden,
@@ -100,29 +91,50 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 				),
 			}
 		}
-	}
-
-	if allowedRoles := p.AllowedRoles; len(allowedRoles) != 0 {
-		for _, role := range sessionToken.Roles {
-			if slices.Contains(p.AllowedRoles, role) {
-				allowed = true
-				break
+		if errors.Is(err, sessionErrors.ErrRolesNotAllowed) {
+			return nil, &response_error.ResponseError{
+				ProblemDetail: problem_detail.New(
+					http.StatusForbidden,
+					problem_detail_config.WithDetail("None of the session token's roles match the allowed roles."),
+				),
 			}
 		}
-	} else {
-		allowed = true
-	}
-
-	if !allowed {
-		return nil, &response_error.ResponseError{
-			ProblemDetail: problem_detail.New(
-				http.StatusForbidden,
-				problem_detail_config.WithDetail("None of the session token's roles match the allowed roles."),
-			),
-		}
+		return nil, &response_error.ResponseError{ServerError: fmt.Errorf("admits: %w", err)}
 	}
 
 	return sessionToken, nil
+}
+
+// Admits reports whether a holder of roles, in the tenant tenantId, is one this parser lets
+// through: a super admin role admits outright, and otherwise the tenant must be the allowed one
+// and one of the roles an allowed one, where either is required at all. The refusals are
+// errors.ErrTenantNotAllowed and errors.ErrRolesNotAllowed.
+//
+// Parse asks it of what a token claims. It is exported so that the same decision can be asked of
+// what an account is now, which may no longer be what its token says.
+func (p *Parser) Admits(roles []string, tenantId string) error {
+	if superAdminRoles := p.SuperAdminRoles; len(superAdminRoles) != 0 {
+		for _, role := range roles {
+			if slices.Contains(superAdminRoles, role) {
+				return nil
+			}
+		}
+	}
+
+	if allowedTenantId := p.AllowedTenantId; allowedTenantId != "" && tenantId != allowedTenantId {
+		return sessionErrors.ErrTenantNotAllowed
+	}
+
+	if allowedRoles := p.AllowedRoles; len(allowedRoles) != 0 {
+		for _, role := range roles {
+			if slices.Contains(allowedRoles, role) {
+				return nil
+			}
+		}
+		return sessionErrors.ErrRolesNotAllowed
+	}
+
+	return nil
 }
 
 func (p *Parser) Verifier() altshiftCryptoInterfaces.NamedVerifier {
