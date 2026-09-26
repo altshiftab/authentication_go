@@ -48,6 +48,34 @@ var (
 </html>
 `))
 
+	defaultUnusablePageTemplate = template.Must(template.New("unusable").Parse(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Sign-in link no longer valid</title>
+<style>` + defaultInlineStyle + `</style>
+</head>
+<body>
+<main class="card">
+<h1>Sign-in link no longer valid</h1>
+<p>This sign-in link has expired or has already been used. Request a new one to sign in.</p>
+</main>
+</body>
+</html>
+`))
+
+	// DefaultUnusablePageBuilder renders the page for a link that has expired or been used, styled as
+	// DefaultPageBuilder's is, so DefaultContentSecurityPolicy covers it. It ignores the form action.
+	DefaultUnusablePageBuilder PageBuilder = func(_ string, _ *altshiftHttpTypes.AcceptLanguage) ([]byte, error) {
+		var buf bytes.Buffer
+		if err := defaultUnusablePageTemplate.Execute(&buf, nil); err != nil {
+			return nil, fmt.Errorf("template execute: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+
 	DefaultPageBuilder PageBuilder = func(formAction string, _ *altshiftHttpTypes.AcceptLanguage) ([]byte, error) {
 		var buf bytes.Buffer
 		if err := defaultPageTemplate.Execute(&buf, struct{ Action string }{Action: formAction}); err != nil {
@@ -77,6 +105,7 @@ func buildDefaultCsp() string {
 type Config struct {
 	Path                  string
 	PageBuilder           PageBuilder
+	UnusablePageBuilder   PageBuilder
 	ContentSecurityPolicy string
 }
 
@@ -103,6 +132,13 @@ func WithPath(path string) Option {
 func WithPageBuilder(pageBuilder PageBuilder) Option {
 	return func(config *Config) {
 		config.PageBuilder = pageBuilder
+	}
+}
+
+// WithUnusablePageBuilder answers an expired or spent link with a page rather than a problem detail.
+func WithUnusablePageBuilder(pageBuilder PageBuilder) Option {
+	return func(config *Config) {
+		config.UnusablePageBuilder = pageBuilder
 	}
 }
 

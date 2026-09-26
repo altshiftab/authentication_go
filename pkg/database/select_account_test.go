@@ -146,3 +146,32 @@ func TestSelectEmailAddressAccount_Scan(t *testing.T) {
 		})
 	}
 }
+
+// TestSelectIdTokenHashUsed_Scan covers what SelectIdTokenHashUsed makes of the EXISTS it selects.
+func TestSelectIdTokenHashUsed_Scan(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		used bool
+	}{
+		{name: "used", used: true},
+		{name: "unused", used: false},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := newRowDb([]string{"exists"}, []driver.Value{testCase.used})
+			t.Cleanup(func() { _ = db.Close() })
+
+			used, err := SelectIdTokenHashUsed(context.Background(), []byte("hash"), db)
+			if err != nil {
+				t.Fatalf("select id token hash used: %v", err)
+			}
+			if used != testCase.used {
+				t.Errorf("got used %v, want %v", used, testCase.used)
+			}
+		})
+	}
+}

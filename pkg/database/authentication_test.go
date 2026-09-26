@@ -48,6 +48,33 @@ func TestInsertAuthentication(t *testing.T) {
 	}
 }
 
+func TestSelectIdTokenHashUsed(t *testing.T) {
+	t.Parallel()
+
+	db := altshiftSqlTesting.NewDb()
+	t.Cleanup(func() { _ = db.Close() })
+
+	testCases := []struct {
+		name        string
+		idTokenHash []byte
+		db          *sql.DB
+		ctx         context.Context
+	}{
+		{name: "empty hash", db: db, ctx: context.Background()},
+		{name: "nil db", idTokenHash: []byte("hash"), ctx: context.Background()},
+		{name: "canceled ctx", idTokenHash: []byte("hash"), db: db, ctx: canceledCtx()},
+		{name: "scan no rows", idTokenHash: []byte("hash"), db: db, ctx: context.Background()},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := SelectIdTokenHashUsed(testCase.ctx, testCase.idTokenHash, testCase.db); err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+		})
+	}
+}
+
 func TestSelectRefreshAuthentication(t *testing.T) {
 	t.Parallel()
 

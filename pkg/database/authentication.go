@@ -32,6 +32,7 @@ const (
 	authenticationSelectRefreshQuery           = `SELECT au.ended, au.expires_at, au.created_at, au.dbsc_public_key, a.id, a.email_address, a.locked, c.id, c.name, COALESCE(a.roles, '{}'::text[]) AS roles FROM authentication au JOIN account a ON a.id = au.account LEFT JOIN customer c ON c.id = a.customer WHERE au.id = $1;`
 	authenticationUpdateWithDbscPublicKeyQuery = `UPDATE authentication SET dbsc_public_key = $1 WHERE id = $2;`
 	authenticationUpdateWithEndedQuery         = `UPDATE authentication SET ended = true, ended_at = now() WHERE id = $1;`
+	authenticationSelectIdTokenHashUsedQuery   = `SELECT EXISTS (SELECT 1 FROM authentication WHERE id_token_hash = $1);` //nolint:gosec // A query naming a column, not a credential.
 )
 
 func InsertAuthentication(
@@ -124,6 +125,34 @@ func InsertAuthentication(
 	}
 
 	return authentication, nil
+}
+
+// SelectIdTokenHashUsed reports whether an authentication was already created from the token the hash
+// names, which is what InsertAuthentication refuses a second time.
+func SelectIdTokenHashUsed(ctx context.Context, idTokenHash []byte, database *sql.DB) (bool, error) {
+	if len(idTokenHash) == 0 {
+		return false, altshiftErrors.NewWithTrace(empty_error.New("id token hash"))
+	}
+
+	if database == nil {
+		return false, altshiftErrors.NewWithTrace(nil_error.New("sql database"))
+	}
+
+	if err := ctx.Err(); err != nil {
+		return false, fmt.Errorf("context err: %w", err)
+	}
+
+	row := database.QueryRowContext(ctx, authenticationSelectIdTokenHashUsedQuery, idTokenHash)
+	if row == nil {
+		return false, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
+	}
+
+	var used bool
+	if err := row.Scan(&used); err != nil {
+		return false, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+	}
+
+	return used, nil
 }
 
 func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.DB) (*authenticationPkg.Authentication, error) {
