@@ -239,6 +239,18 @@ func (e *Endpoint) Initialize(
 			httpContext.User = &schema.User{Email: emailAddress}
 		}
 
+		response, responseError := sessionManager.CreateSession(ctx, authentication_method.MagicLink, emailAddress, nonceHash[:])
+		if responseError != nil {
+			return nil, responseError
+		}
+		if response == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
+			}
+		}
+
+		// Only once the session exists: a refused link -- reused, or naming no account -- is logged as the
+		// client error it is, and must not also be recorded as a sign-in.
 		// A message of its own rather than the identity provider's: no provider authenticated
 		// anyone here, and the two say different things about what was proved. A magic link proves
 		// possession of a mailbox, with no second factor, no organization and no authentication
@@ -250,16 +262,6 @@ func (e *Endpoint) Initialize(
 			"A magic link authenticated a user.",
 			slog.Group("user", slog.String("email", emailAddress)),
 		)
-
-		response, responseError := sessionManager.CreateSession(ctx, authentication_method.MagicLink, emailAddress, nonceHash[:])
-		if responseError != nil {
-			return nil, responseError
-		}
-		if response == nil {
-			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
-			}
-		}
 
 		location := redirectUrlString
 		if verifiedToken.RedirectUrl != "" {

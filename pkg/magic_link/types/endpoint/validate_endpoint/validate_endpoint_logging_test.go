@@ -13,6 +13,7 @@ import (
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
 )
@@ -71,6 +72,25 @@ func TestSignInLogging(t *testing.T) {
 		httpServer.URL,
 	)
 
+	// The link is spent: a second submission, as a double-clicked button sends, is refused and must not
+	// be recorded as a second sign-in.
+	muxTesting.TestArgs(
+		t,
+		&muxTesting.Args{
+			Path:               testEndpoint.Path + "?token=" + token,
+			Method:             testEndpoint.Method,
+			ExpectedStatusCode: http.StatusConflict,
+			ExpectedProblemDetail: &problem_detail.Detail{
+				Detail: "This sign-in link has already been used.",
+			},
+		},
+		httpServer.URL,
+	)
+
+	if count := countLogEntries(t, &logBuffer, signInMessage); count != 1 {
+		t.Errorf("got %d %q log entries, want 1", count, signInMessage)
+	}
+
 	entry := findLogEntry(t, &logBuffer, signInMessage)
 
 	user, _ := entry["user"].(map[string]any)
@@ -122,4 +142,26 @@ func findLogEntry(t *testing.T, buffer *bytes.Buffer, message string) map[string
 
 	t.Fatalf("no log entry with msg %q found in:\n%s", message, buffer.String())
 	return nil
+}
+
+func countLogEntries(t *testing.T, buffer *bytes.Buffer, message string) int {
+	t.Helper()
+
+	var count int
+	for line := range bytes.Lines(buffer.Bytes()) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+
+		var entry map[string]any
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatalf("unmarshal log line %q: %v", line, err)
+		}
+
+		if entry["msg"] == message {
+			count++
+		}
+	}
+
+	return count
 }
