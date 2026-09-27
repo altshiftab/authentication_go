@@ -89,6 +89,8 @@ func TestEndpoint(t *testing.T) {
 		invalidSessionTokenExp    bool
 		invalidSessionTokenNbf    bool
 		negativeDuration          bool
+		endedAuthentication       bool
+		expiredAuthentication     bool
 	}{
 		{
 			name: "ext session happy path refresh",
@@ -175,6 +177,42 @@ func TestEndpoint(t *testing.T) {
 				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
 			},
 			dbErr: errors.New("db error"),
+		},
+		{
+			// 401 rather than 400: a client is sent to sign in again on 401, and on nothing else.
+			name: "ended authentication",
+			args: &muxTesting.Args{
+				Headers: [][2]string{
+					{
+						"Cookie",
+						dueForRefreshCookie,
+					},
+				},
+				ExpectedStatusCode: http.StatusUnauthorized,
+				ExpectedHeaders:    [][2]string{{"Clear-Site-Data", `"cookies"`}},
+				ExpectedProblemDetail: &problem_detail.Detail{
+					Detail: "The session's authentication has ended.",
+				},
+				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
+			},
+			endedAuthentication: true,
+		},
+		{
+			name: "expired authentication",
+			args: &muxTesting.Args{
+				Headers: [][2]string{
+					{
+						"Cookie",
+						dueForRefreshCookie,
+					},
+				},
+				ExpectedStatusCode: http.StatusUnauthorized,
+				ExpectedProblemDetail: &problem_detail.Detail{
+					Detail: "The session's authentication has expired.",
+				},
+				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
+			},
+			expiredAuthentication: true,
 		},
 		{
 			// Clients poll this endpoint far more often than a refresh is due, so a call that
@@ -315,6 +353,14 @@ func TestEndpoint(t *testing.T) {
 
 				if testCase.hasPublicKey {
 					authentication.DbscPublicKey = []byte{1, 2, 3}
+				}
+
+				if testCase.endedAuthentication {
+					authentication.Ended = true
+				}
+
+				if testCase.expiredAuthentication {
+					authentication.ExpiresAt = new(time.Now().Add(-time.Minute))
 				}
 
 				return authentication, nil

@@ -420,14 +420,14 @@ func (m *Manager) RefreshSession(
 			return nil, &response_error.ResponseError{
 				Headers: []*response.HeaderEntry{{Name: "Clear-Site-Data", Value: `"cookies"`}},
 				ProblemDetail: problem_detail.New(
-					http.StatusBadRequest,
+					http.StatusUnauthorized,
 					problem_detail_config.WithDetail("The session's authentication has ended."),
 				),
 			}
 		} else if errors.Is(err, sessionErrors.ErrExpiredAuthentication) {
 			return nil, &response_error.ResponseError{
 				ProblemDetail: problem_detail.New(
-					http.StatusBadRequest,
+					http.StatusUnauthorized,
 					problem_detail_config.WithDetail("The session's authentication has expired."),
 				),
 			}
@@ -577,7 +577,7 @@ func (m *Manager) MintToken(
 		return nil, "", &response_error.ResponseError{
 			Headers: []*response.HeaderEntry{{Name: "Clear-Site-Data", Value: `"cookies"`}},
 			ProblemDetail: problem_detail.New(
-				http.StatusBadRequest,
+				http.StatusUnauthorized,
 				problem_detail_config.WithDetail("The session's authentication has ended."),
 			),
 		}
@@ -586,7 +586,7 @@ func (m *Manager) MintToken(
 	if time.Now().After(*authenticationExpiresAt) {
 		return nil, "", &response_error.ResponseError{
 			ProblemDetail: problem_detail.New(
-				http.StatusBadRequest,
+				http.StatusUnauthorized,
 				problem_detail_config.WithDetail("The session's authentication has expired."),
 			),
 		}

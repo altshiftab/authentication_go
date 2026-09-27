@@ -520,7 +520,7 @@ func TestManager_RefreshSession(t *testing.T) {
 			authentication: endedAuth,
 			sessionToken:   makeSessionToken(t, nil),
 			authMethod:     authentication_method.Refresh,
-			wantStatus:     400,
+			wantStatus:     401,
 			wantDetail:     "The session's authentication has ended.",
 		},
 		{
@@ -528,7 +528,7 @@ func TestManager_RefreshSession(t *testing.T) {
 			authentication: expiredAuth,
 			sessionToken:   makeSessionToken(t, nil),
 			authMethod:     authentication_method.Refresh,
-			wantStatus:     400,
+			wantStatus:     401,
 			wantDetail:     "The session's authentication has expired.",
 		},
 		{
@@ -809,12 +809,12 @@ func TestManager_MintSession(t *testing.T) {
 		{
 			name:           "ended authentication",
 			mutate:         func(a *authenticationPkg.Authentication) { a.Ended = true },
-			wantStatusCode: 400,
+			wantStatusCode: 401,
 		},
 		{
 			name:           "expired authentication",
 			mutate:         func(a *authenticationPkg.Authentication) { a.ExpiresAt = ptrTime(time.Now().Add(-time.Hour)) },
-			wantStatusCode: 400,
+			wantStatusCode: 401,
 		},
 		{
 			name:           "locked account",
@@ -897,12 +897,12 @@ func TestManager_MintToken(t *testing.T) {
 		{
 			name:           "ended authentication",
 			mutate:         func(a *authenticationPkg.Authentication) { a.Ended = true },
-			wantStatusCode: 400,
+			wantStatusCode: 401,
 		},
 		{
 			name:           "expired authentication",
 			mutate:         func(a *authenticationPkg.Authentication) { a.ExpiresAt = ptrTime(time.Now().Add(-time.Hour)) },
-			wantStatusCode: 400,
+			wantStatusCode: 401,
 		},
 		{
 			name:           "locked account",
