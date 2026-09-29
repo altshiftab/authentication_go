@@ -442,7 +442,11 @@ func TestEndpoint_Initialize(t *testing.T) {
 		{name: "empty cookie name in parser", args: args{arp: &authorizer_request_parser.Parser{}, pr: defaultProcessor, dom: "example.com"}, wantErr: true},
 		{name: "nil processor", args: args{arp: arp, pr: nil, dom: "example.com"}, wantErr: true},
 		{name: "nil db in processor", args: args{arp: arp, pr: &dbsc_session_response_processor.Processor{}, dom: "example.com"}, wantErr: true},
+		{name: "empty cookie domain", args: args{arp: arp, pr: defaultProcessor, dom: ""}, wantErr: true},
+		{name: "cookie domain that is a public suffix", args: args{arp: arp, pr: defaultProcessor, dom: "co.uk"}, wantErr: true},
 		{name: "success", args: args{arp: arp, pr: defaultProcessor, dom: "example.com"}},
+		{name: "success, cookie domain narrower than the site", args: args{arp: arp, pr: defaultProcessor, dom: "dev.example.com"}},
+		{name: "success, localhost", args: args{arp: arp, pr: defaultProcessor, dom: "localhost"}},
 	}
 
 	for _, tt := range tests {
@@ -620,5 +624,87 @@ func TestEndpoint_ReissuesSessionCookieWithTokenExpiry(t *testing.T) {
 	}
 	if sessionCookie.Value != requestCookie.Value {
 		t.Errorf("got cookie value %q, expected %q", sessionCookie.Value, requestCookie.Value)
+	}
+}
+
+// TestEndpoint_CookieDomainNarrowerThanSite covers a cookie scoped below the site, as an
+// environment of its own is: the credential and the reissued cookie keep that domain, while the
+// scope still names the site, which is what the protocol requires of a session including it.
+func TestEndpoint_CookieDomainNarrowerThanSite(t *testing.T) {
+	t.Parallel()
+
+	const cookieDomain = "dev." + loginTesting.RegisteredDomain
+
+	validToken, _ := loginTesting.MakeDbscProof("cv")
+
+	testEndpoint := New()
+	testEndpointProcessor, err := dbsc_session_response_processor.New(
+		"https://example.com"+dbsc_register_endpoint_config.DefaultPath,
+		db,
+		dbsc_session_response_processor_config.WithPopDbscChallenge(
+			func(_ context.Context, challenge string, authenticationId string, _ *sql.DB) (*dbsc_challenge.Challenge, error) {
+				return &dbsc_challenge.Challenge{
+					Authentication: &authenticationPkg.Authentication{Id: authenticationId},
+					Challenge:      []byte(challenge),
+					ExpiresAt:      new(time.Now().Add(time.Hour)),
+				}, nil
+			},
+		),
+	)
+	if err != nil {
+		t.Fatalf("dbsc session response processor new: %v", err)
+	}
+
+	if err := testEndpoint.Initialize(defaultAuthorizationRequestParser, testEndpointProcessor, cookieDomain); err != nil {
+		t.Fatalf("test endpoint initialize: %v", err)
+	}
+
+	mux := &muxPkg.Mux{}
+	mux.Add(testEndpoint.Endpoint.Endpoint)
+	httpServer := httptest.NewServer(mux)
+	defer httpServer.Close()
+
+	request, err := http.NewRequestWithContext(t.Context(), testEndpoint.Method, httpServer.URL+testEndpoint.Path, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	request.Header.Set("Cookie", defaultSessionCookieString)
+	request.Header.Set(session.DbscSessionResponseHeaderName, validToken)
+
+	httpResponse, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("client do: %v", err)
+	}
+	defer httpResponse.Body.Close()
+
+	if httpResponse.StatusCode != http.StatusOK {
+		t.Fatalf("got status code %d, expected %d", httpResponse.StatusCode, http.StatusOK)
+	}
+
+	var instructions Response
+	if err := json.UnmarshalRead(httpResponse.Body, &instructions); err != nil {
+		t.Fatalf("json unmarshal read: %v", err)
+	}
+
+	if instructions.Scope == nil {
+		t.Fatalf("nil scope")
+	}
+	if expected := expectedSiteOrigin(t, httpServer.URL); instructions.Scope.Origin != expected {
+		t.Errorf("scope origin %q, expected %q", instructions.Scope.Origin, expected)
+	}
+
+	if len(instructions.Credentials) != 1 || instructions.Credentials[0] == nil {
+		t.Fatalf("expected one credential, got %v", instructions.Credentials)
+	}
+	if expected := session_cookie.Attributes(cookieDomain); instructions.Credentials[0].Attributes != expected {
+		t.Errorf("credential attributes %q, expected %q", instructions.Credentials[0].Attributes, expected)
+	}
+
+	sessionCookie, err := http.ParseSetCookie(httpResponse.Header.Get("Set-Cookie"))
+	if err != nil {
+		t.Fatalf("parse set cookie: %v", err)
+	}
+	if sessionCookie.Domain != cookieDomain {
+		t.Errorf("reissued cookie domain %q, expected %q", sessionCookie.Domain, cookieDomain)
 	}
 }

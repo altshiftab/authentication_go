@@ -33,6 +33,7 @@ import (
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/net/types/domain_parts"
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
@@ -135,7 +136,7 @@ func makeSessionCookieHeader(
 	request *http.Request,
 	sessionToken *session_token.Token,
 	cookieName string,
-	registeredDomain string,
+	cookieDomain string,
 	sessionCookieOptions ...session_cookie_config.Option,
 ) (*muxResponse.HeaderEntry, *response_error.ResponseError) {
 	claims := sessionToken.Claims
@@ -164,14 +165,14 @@ func makeSessionCookieHeader(
 		requestCookie.Value,
 		expiresAt.Time,
 		cookieName,
-		registeredDomain,
+		cookieDomain,
 		sessionCookieOptions...,
 	)
 	if err != nil {
 		return nil, &response_error.ResponseError{
 			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
-				expiresAt.Time, cookieName, registeredDomain,
+				expiresAt.Time, cookieName, cookieDomain,
 			),
 		}
 	}
@@ -184,12 +185,24 @@ func makeSessionCookieHeader(
 	return &muxResponse.HeaderEntry{Name: "Set-Cookie", Value: sessionCookie.String()}, nil
 }
 
+// Initialize wires the endpoint. cookieDomain is the Domain attribute of the session cookie, which
+// may be narrower than the site (dev.example.com rather than example.com); the site a session
+// includes is derived from it.
 func (e *Endpoint) Initialize(
 	authorizerRequestParser *authorizer_request_parser.Parser,
 	dbscSessionResponseProcessor *dbsc_session_response_processor.Processor,
-	registeredDomain string,
+	cookieDomain string,
 	sessionCookieOptions ...session_cookie_config.Option,
 ) error {
+	cookieDomainParts := domain_parts.NewAllowingLoopback(cookieDomain)
+	if cookieDomainParts == nil {
+		return altshiftErrors.NewWithTrace(nil_error.New("cookie domain parts"), cookieDomain)
+	}
+	registeredDomain := cookieDomainParts.RegisteredDomain
+	if registeredDomain == "" {
+		return altshiftErrors.NewWithTrace(empty_error.New("registered domain"), cookieDomain)
+	}
+
 	if authorizerRequestParser == nil {
 		return altshiftErrors.NewWithTrace(nil_error.New("authorizer request parser"))
 	}
@@ -326,7 +339,7 @@ func (e *Endpoint) Initialize(
 				{
 					Type:       "cookie",
 					Name:       cookieName,
-					Attributes: session_cookie.Attributes(registeredDomain, sessionCookieOptions...),
+					Attributes: session_cookie.Attributes(cookieDomain, sessionCookieOptions...),
 				},
 			},
 		}
@@ -349,7 +362,7 @@ func (e *Endpoint) Initialize(
 			request,
 			sessionToken,
 			cookieName,
-			registeredDomain,
+			cookieDomain,
 			sessionCookieOptions...,
 		)
 		if responseError != nil {
