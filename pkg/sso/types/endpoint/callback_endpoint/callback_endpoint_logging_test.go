@@ -260,6 +260,13 @@ func TestSignInLoggingIdentifiesUser(t *testing.T) {
 		t.Errorf("user id: got %v, expected %s", user["id"], testing2.Subject)
 	}
 
+	// Nested as ECS organization.id: a top-level string clashes with the organization object mapping.
+	organization, _ := entry["organization"].(map[string]any)
+	if organization == nil {
+		t.Errorf("expected an organization object; got %v", entry["organization"])
+	} else if _, ok := organization["id"].(string); !ok {
+		t.Errorf("expected a string organization id; got %v", organization["id"])
+	}
 	if strongAuthentication, _ := entry["strong_authentication"].(bool); !strongAuthentication {
 		t.Errorf("expected the sign-in to be recorded as strongly authenticated: %v", entry)
 	}

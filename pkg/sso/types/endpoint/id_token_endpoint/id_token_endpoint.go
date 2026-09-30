@@ -165,7 +165,7 @@ func (e *Endpoint[T]) Initialize(
 				slog.String("id", providerClaims.Subject()),
 				slog.String("email", emailAddress),
 			),
-			slog.String("organization", organizationIdentifier),
+			slog.Group("organization", slog.String("id", organizationIdentifier)),
 		}
 
 		// Written only when the provider stated something. Unlike the authorization code flow, the

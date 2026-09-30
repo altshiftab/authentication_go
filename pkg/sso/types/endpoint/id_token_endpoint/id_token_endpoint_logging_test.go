@@ -156,11 +156,12 @@ func TestSignInLogging(t *testing.T) {
 				t.Errorf("%s: user.id = %v, want %s", testCase.name, user["id"], ssoTesting.Subject)
 			}
 
-			organization, ok := entry["organization"].(string)
+			// Nested as ECS organization.id: a top-level string clashes with the organization object mapping.
+			organization, ok := entry["organization"].(map[string]any)
 			if !ok {
-				t.Errorf("%s: expected an organization field; got keys %v", testCase.name, keysOf(entry))
-			} else if organization != testCase.organization {
-				t.Errorf("%s: organization = %q, want %q", testCase.name, organization, testCase.organization)
+				t.Errorf("%s: expected an organization object; got %v", testCase.name, entry["organization"])
+			} else if id, _ := organization["id"].(string); id != testCase.organization {
+				t.Errorf("%s: organization.id = %q, want %q", testCase.name, id, testCase.organization)
 			}
 
 			methodReferences, hasMethodReferences := entry["authentication_method_references"]

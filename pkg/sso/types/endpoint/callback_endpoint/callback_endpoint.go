@@ -454,7 +454,7 @@ func (e *Endpoint[T]) Initialize(
 			slog.Bool("strong_authentication", strongAuthentication),
 			slog.Bool("strong_authentication_required", e.RequireStrongAuthentication),
 			slog.Bool("organization_required", e.RequireOrganization),
-			slog.String("organization", organizationIdentifier),
+			slog.Group("organization", slog.String("id", organizationIdentifier)),
 		}
 		if authenticationContext != nil {
 			logAttributes = append(
