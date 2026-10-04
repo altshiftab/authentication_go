@@ -479,9 +479,10 @@ func TestManager_RefreshSession(t *testing.T) {
 		authMethod     string
 		mutateManager  func(*Manager)
 
-		wantStatus int
-		wantDetail string
-		wantOK     bool
+		wantStatus    int
+		wantDetail    string
+		wantClearSite bool
+		wantOK        bool
 	}{
 		{
 			name:           "success",
@@ -551,6 +552,45 @@ func TestManager_RefreshSession(t *testing.T) {
 			sessionToken:   tokenNoClaims,
 			authMethod:     authentication_method.Refresh,
 		},
+		{
+			name:           "session token without claims with idle duration",
+			authentication: validAuth,
+			sessionToken:   tokenNoClaims,
+			authMethod:     authentication_method.Refresh,
+			mutateManager:  func(m *Manager) { m.IdleDuration = 30 * time.Minute },
+		},
+		{
+			name:           "session token without expires at with idle duration",
+			authentication: validAuth,
+			sessionToken:   makeSessionToken(t, func(c *session_claims.Claims) { c.ExpiresAt = nil }),
+			authMethod:     authentication_method.Refresh,
+			mutateManager:  func(m *Manager) { m.IdleDuration = 30 * time.Minute },
+		},
+		{
+			name:           "expired within idle duration",
+			authentication: validAuth,
+			sessionToken:   makeSessionToken(t, expiredAgo(29*time.Minute)),
+			authMethod:     authentication_method.Refresh,
+			mutateManager:  func(m *Manager) { m.IdleDuration = 30 * time.Minute },
+			wantOK:         true,
+		},
+		{
+			name:           "expired past idle duration",
+			authentication: validAuth,
+			sessionToken:   makeSessionToken(t, expiredAgo(31*time.Minute)),
+			authMethod:     authentication_method.Refresh,
+			mutateManager:  func(m *Manager) { m.IdleDuration = 30 * time.Minute },
+			wantStatus:     401,
+			wantDetail:     "The session has been idle for too long.",
+			wantClearSite:  true,
+		},
+		{
+			name:           "expired long ago without idle duration",
+			authentication: validAuth,
+			sessionToken:   makeSessionToken(t, expiredAgo(11*time.Hour)),
+			authMethod:     authentication_method.Refresh,
+			wantOK:         true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -588,6 +628,11 @@ func TestManager_RefreshSession(t *testing.T) {
 				if tt.wantDetail != "" && respErr.ProblemDetail.Detail != tt.wantDetail {
 					t.Errorf("detail: got %q, want %q", respErr.ProblemDetail.Detail, tt.wantDetail)
 				}
+				if tt.wantClearSite && !slices.ContainsFunc(respErr.Headers, func(h *response.HeaderEntry) bool {
+					return h != nil && h.Name == "Clear-Site-Data" && h.Value == `"cookies"`
+				}) {
+					t.Errorf("expected Clear-Site-Data, got headers %+v", respErr.Headers)
+				}
 			} else if respErr.ServerError == nil {
 				t.Errorf("expected server error, got %+v", respErr)
 			}
@@ -596,6 +641,16 @@ func TestManager_RefreshSession(t *testing.T) {
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }
+
+// expiredAgo makes a token that expired the given duration ago, after a fifteen minute lifetime.
+func expiredAgo(ago time.Duration) func(*session_claims.Claims) {
+	return func(c *session_claims.Claims) {
+		expiresAt := time.Now().Add(-ago)
+		c.ExpiresAt = numeric_date.New(expiresAt)
+		c.NotBefore = numeric_date.New(expiresAt.Add(-15 * time.Minute))
+		c.IssuedAt = c.NotBefore
+	}
+}
 
 func TestManager_RefreshSession_RolesFromAccount(t *testing.T) {
 	t.Parallel()

@@ -29,6 +29,9 @@ func TestNew(t *testing.T) {
 	if config.AuthenticationDuration != DefaultAuthenticationDuration {
 		t.Errorf("authentication duration: got %v", config.AuthenticationDuration)
 	}
+	if config.IdleDuration != DefaultIdleDuration {
+		t.Errorf("idle duration: got %v", config.IdleDuration)
+	}
 	if config.DbscChallengeDuration != DefaultDbscChallengeDuration {
 		t.Errorf("dbsc challenge duration: got %v", config.DbscChallengeDuration)
 	}
@@ -70,6 +73,14 @@ func TestOptions(t *testing.T) {
 
 		if config := New(WithAuthenticationDuration(time.Hour)); config.AuthenticationDuration != time.Hour {
 			t.Errorf("authentication duration: got %v", config.AuthenticationDuration)
+		}
+	})
+
+	t.Run("with idle duration", func(t *testing.T) {
+		t.Parallel()
+
+		if config := New(WithIdleDuration(time.Hour)); config.IdleDuration != time.Hour {
+			t.Errorf("idle duration: got %v", config.IdleDuration)
 		}
 	})
 

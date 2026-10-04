@@ -26,6 +26,10 @@ var (
 	DefaultDbscRegisterPath       = dbsc_register_endpoint_config.DefaultPath
 	DefaultDbscAlgs               = []string{"ES256"}
 
+	// Zero leaves a session renewable for as long as its authentication lasts, however long it has
+	// sat unused. See WithIdleDuration.
+	DefaultIdleDuration time.Duration = 0
+
 	DefaultSelectEmailAddressAccount = database.SelectEmailAddressAccount
 	DefaultInsertAuthentication      = database.InsertAuthentication
 	DefaultInsertDbscChallenge       = database.InsertDbscChallenge
@@ -35,6 +39,7 @@ type Config struct {
 	CookieName                string
 	InitialSessionDuration    time.Duration
 	AuthenticationDuration    time.Duration
+	IdleDuration              time.Duration
 	DbscChallengeDuration     time.Duration
 	DbscRegisterPath          string
 	DbscAlgs                  []string
@@ -51,6 +56,7 @@ func New(options ...Option) *Config {
 		CookieName:                DefaultCookieName,
 		InitialSessionDuration:    DefaultInitialSessionDuration,
 		AuthenticationDuration:    DefaultAuthenticationDuration,
+		IdleDuration:              DefaultIdleDuration,
 		DbscChallengeDuration:     DefaultDbscChallengeDuration,
 		DbscRegisterPath:          DefaultDbscRegisterPath,
 		DbscAlgs:                  DefaultDbscAlgs,
@@ -80,6 +86,17 @@ func WithInitialSessionDuration(initialSessionDuration time.Duration) Option {
 func WithAuthenticationDuration(authenticationDuration time.Duration) Option {
 	return func(config *Config) {
 		config.AuthenticationDuration = authenticationDuration
+	}
+}
+
+// WithIdleDuration bounds how long a session token may have been expired and still be renewed
+// from its cookie. The token is renewed for as long as the session is in use, so how long ago it
+// expired is how long the session has sat idle; past this, signing in again is the only way back.
+// Without it, a cookie copied at any point stays renewable until the authentication expires. Zero
+// turns the bound off.
+func WithIdleDuration(idleDuration time.Duration) Option {
+	return func(config *Config) {
+		config.IdleDuration = idleDuration
 	}
 }
 

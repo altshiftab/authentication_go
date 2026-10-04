@@ -41,7 +41,11 @@ import (
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
-const setCookieHeaderName = "Set-Cookie"
+const (
+	setCookieHeaderName     = "Set-Cookie"
+	clearSiteDataHeaderName = "Clear-Site-Data"
+	clearSiteDataCookies    = `"cookies"`
+)
 
 type Manager struct {
 	Signer       altshiftCryptoInterfaces.NamedSigner
@@ -52,6 +56,7 @@ type Manager struct {
 	CookieName                string
 	InitialSessionDuration    time.Duration
 	AuthenticationDuration    time.Duration
+	IdleDuration              time.Duration
 	DbscChallengeDuration     time.Duration
 	DbscRegisterPath          string
 	DbscAlgs                  []string
@@ -414,11 +419,38 @@ func (m *Manager) RefreshSession(
 		}
 	}
 
+	// The token is renewed for as long as the session is in use, so how long ago it expired is how
+	// long the session has sat idle. Past the bound the cookie is cleared, as for an ended
+	// authentication: it can no longer be renewed, and signing in again is the way back.
+	if idleDuration := m.IdleDuration; idleDuration > 0 {
+		claims := sessionToken.Claims
+		if claims == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token claims")),
+			}
+		}
+		expiresAt := claims.ExpiresAt
+		if expiresAt == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token claims expires at")),
+			}
+		}
+		if time.Since(expiresAt.Time) > idleDuration {
+			return nil, &response_error.ResponseError{
+				Headers: []*response.HeaderEntry{{Name: clearSiteDataHeaderName, Value: clearSiteDataCookies}},
+				ProblemDetail: problem_detail.New(
+					http.StatusUnauthorized,
+					problem_detail_config.WithDetail("The session has been idle for too long."),
+				),
+			}
+		}
+	}
+
 	newSessionToken, err := sessionToken.Refresh(authentication, sessionDuration, authenticationMethod)
 	if err != nil {
 		if errors.Is(err, sessionErrors.ErrEndedAuthentication) {
 			return nil, &response_error.ResponseError{
-				Headers: []*response.HeaderEntry{{Name: "Clear-Site-Data", Value: `"cookies"`}},
+				Headers: []*response.HeaderEntry{{Name: clearSiteDataHeaderName, Value: clearSiteDataCookies}},
 				ProblemDetail: problem_detail.New(
 					http.StatusUnauthorized,
 					problem_detail_config.WithDetail("The session's authentication has ended."),
@@ -575,7 +607,7 @@ func (m *Manager) MintToken(
 
 	if authentication.Ended {
 		return nil, "", &response_error.ResponseError{
-			Headers: []*response.HeaderEntry{{Name: "Clear-Site-Data", Value: `"cookies"`}},
+			Headers: []*response.HeaderEntry{{Name: clearSiteDataHeaderName, Value: clearSiteDataCookies}},
 			ProblemDetail: problem_detail.New(
 				http.StatusUnauthorized,
 				problem_detail_config.WithDetail("The session's authentication has ended."),
@@ -802,6 +834,7 @@ func New(
 		CookieName:                config.CookieName,
 		InitialSessionDuration:    config.InitialSessionDuration,
 		AuthenticationDuration:    config.AuthenticationDuration,
+		IdleDuration:              config.IdleDuration,
 		DbscChallengeDuration:     config.DbscChallengeDuration,
 		DbscRegisterPath:          config.DbscRegisterPath,
 		DbscAlgs:                  config.DbscAlgs,
