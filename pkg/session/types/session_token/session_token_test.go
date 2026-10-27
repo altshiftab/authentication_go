@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -135,8 +136,8 @@ func TestGetUser(t *testing.T) {
 		if user == nil {
 			t.Fatalf("nil user")
 		}
-		if user.Id != "subject-id" || user.Email != "test@example.com" {
-			t.Errorf("user fields: got %+v", user)
+		if user.Id != "subject-id" || user.Email != "" {
+			t.Errorf("user fields: got %+v, want the id and no email address", user)
 		}
 		if user.Group == nil || user.Group.Id != "tenant-id" || user.Group.Name != "Tenant Name" {
 			t.Errorf("group: got %+v", user.Group)
@@ -173,16 +174,20 @@ func TestUserAttributes(t *testing.T) {
 			Roles:               []string{"role-a"},
 		}
 
-		if attributeCount := len(token.UserAttributes()); attributeCount != 4 {
-			t.Errorf("attributes: got %d, want 4", attributeCount)
+		attributes := token.UserAttributes()
+		if attributeCount := len(attributes); attributeCount != 3 {
+			t.Errorf("attributes: got %d, want 3", attributeCount)
+		}
+		if written := fmt.Sprint(attributes...); strings.Contains(written, "test@example.com") {
+			t.Errorf("the email address is among the attributes: %s", written)
 		}
 	})
 
 	t.Run("without tenant", func(t *testing.T) {
 		t.Parallel()
 
-		if attributeCount := len((&Token{}).UserAttributes()); attributeCount != 3 {
-			t.Errorf("attributes: got %d, want 3", attributeCount)
+		if attributeCount := len((&Token{}).UserAttributes()); attributeCount != 2 {
+			t.Errorf("attributes: got %d, want 2", attributeCount)
 		}
 	})
 }

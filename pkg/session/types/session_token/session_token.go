@@ -40,10 +40,12 @@ type Token struct {
 	KeyThumbprint string
 }
 
+// GetUser is the user the request log names for a request carrying the session: by the account id,
+// which names the person to whoever can look it up, and not by the email address, which the log
+// does not need for that.
 func (t *Token) GetUser() *schema.User {
 	user := &schema.User{
-		Id:    t.SubjectId,
-		Email: t.SubjectEmailAddress,
+		Id: t.SubjectId,
 	}
 
 	if t.TenantId != "" || t.TenantName != "" {
@@ -58,6 +60,8 @@ func (t *Token) GetUser() *schema.User {
 	return user
 }
 
+// UserAttributes are the same, as the attributes of a log line: the account id, roles and tenant,
+// and not the email address.
 func (t *Token) UserAttributes() []any {
 	roles := t.Roles
 	if len(roles) == 0 {
@@ -66,7 +70,6 @@ func (t *Token) UserAttributes() []any {
 
 	attrs := []any{
 		slog.String("id", t.SubjectId),
-		slog.String("email", t.SubjectEmailAddress),
 		slog.Any("roles", roles),
 	}
 
