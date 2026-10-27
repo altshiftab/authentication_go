@@ -94,7 +94,7 @@ func (t *Token) Encode(signer interfaces.NamedSigner) (string, error) {
 
 	data, err := json.Marshal(t.Claims)
 	if err != nil {
-		return "", altshiftErrors.NewWithTrace(fmt.Errorf("json marshal (claims): %w", err), t.Claims)
+		return "", altshiftErrors.NewWithTrace(fmt.Errorf("json marshal (claims): %w", err))
 	}
 
 	var payload map[string]any
@@ -113,7 +113,7 @@ func (t *Token) Encode(signer interfaces.NamedSigner) (string, error) {
 
 	tokenString, err := token.Encode(signer)
 	if err != nil {
-		return "", altshiftErrors.New(fmt.Errorf("token encode: %w", err), token, signer)
+		return "", altshiftErrors.New(fmt.Errorf("token encode: %w", err), signer)
 	}
 
 	return tokenString, nil
@@ -214,7 +214,7 @@ func ParsePayload(payload map[string]any) (*Token, error) {
 
 	claims, err := session_claims.New(payload)
 	if err != nil {
-		return nil, altshiftErrors.New(fmt.Errorf("session claims new: %w", err), payload)
+		return nil, altshiftErrors.New(fmt.Errorf("session claims new: %w", err))
 	}
 	if claims == nil {
 		return nil, altshiftErrors.NewWithTrace(nil_error.New("session claims"))

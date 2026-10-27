@@ -326,7 +326,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
 		return nil, &response_error.ResponseError{
-			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
+			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err)),
 		}
 	}
 	if sessionToken == nil {
@@ -340,7 +340,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 		return nil, &response_error.ResponseError{
 			ServerError: altshiftErrors.New(
 				fmt.Errorf("new session token encode: %w", err),
-				sessionToken, signer,
+				signer,
 			),
 		}
 	}
@@ -360,7 +360,7 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 		return nil, &response_error.ResponseError{
 			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
-				sessionTokenString, authenticationExpiresAt, m.CookieName, m.CookieDomain,
+				authenticationExpiresAt, m.CookieName, m.CookieDomain,
 			),
 		}
 	}
@@ -499,7 +499,7 @@ func (m *Manager) RefreshSession(
 		return nil, &response_error.ResponseError{
 			ServerError: altshiftErrors.New(
 				fmt.Errorf("new session token encode: %w", err),
-				newSessionToken, signer,
+				signer,
 			),
 		}
 	}
@@ -531,7 +531,7 @@ func (m *Manager) RefreshSession(
 		return nil, &response_error.ResponseError{
 			ServerError: altshiftErrors.New(
 				fmt.Errorf("session cookie new: %w", err),
-				newSessionTokenString, cookieExpiresAt, m.CookieName, m.CookieDomain,
+				cookieExpiresAt, m.CookieName, m.CookieDomain,
 			),
 		}
 	}
@@ -719,7 +719,7 @@ func (m *Manager) MintToken(
 	sessionToken, err := session_token.Parse(sessionClaims)
 	if err != nil {
 		return nil, "", &response_error.ResponseError{
-			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err), sessionClaims),
+			ServerError: altshiftErrors.New(fmt.Errorf("session token parse: %w", err)),
 		}
 	}
 	if sessionToken == nil {
@@ -733,7 +733,7 @@ func (m *Manager) MintToken(
 	sessionTokenString, err := sessionToken.Encode(signer)
 	if err != nil {
 		return nil, "", &response_error.ResponseError{
-			ServerError: altshiftErrors.New(fmt.Errorf("session token encode: %w", err), sessionToken),
+			ServerError: altshiftErrors.New(fmt.Errorf("session token encode: %w", err), signer),
 		}
 	}
 

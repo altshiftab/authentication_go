@@ -121,7 +121,7 @@ func (e *Endpoint[T]) Initialize(
 
 		authenticatedIdToken, err := idTokenAuthenticator.Authenticate(ctx, idToken)
 		if err != nil {
-			wrappedErr := altshiftErrors.New(fmt.Errorf("authenticator with key handler authenticate: %w", err), idToken)
+			wrappedErr := altshiftErrors.New(fmt.Errorf("authenticator with key handler authenticate: %w", err))
 			if altshiftErrors.IsAny(err, altshiftErrors.ErrParseError, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError) {
 				return nil, &response_error.ResponseError{
 					ClientError: wrappedErr,
@@ -158,7 +158,7 @@ func (e *Endpoint[T]) Initialize(
 		_, idTokenPayload, _, err := altshiftJws.Parse(idToken)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("jwt parse: %w", err), idToken),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("jwt parse: %w", err)),
 			}
 		}
 		if len(idTokenPayload) == 0 {
@@ -170,10 +170,7 @@ func (e *Endpoint[T]) Initialize(
 		var providerClaims T
 		if err := json.Unmarshal(idTokenPayload, &providerClaims); err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.NewWithTrace(
-					fmt.Errorf("json unmarshal (id token payload): %w", err),
-					idTokenPayload,
-				),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("json unmarshal (id token payload): %w", err)),
 			}
 		}
 
@@ -181,7 +178,7 @@ func (e *Endpoint[T]) Initialize(
 		if err != nil {
 			wrappedErr := altshiftErrors.New(
 				fmt.Errorf("provider claims verified email address: %w", err),
-				providerClaims,
+				providerClaims.Subject(),
 			)
 			if errors.Is(err, ssoErrors.ErrForbiddenUser) {
 				return nil, &response_error.ResponseError{

@@ -161,7 +161,7 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.C
 		)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.New(fmt.Errorf("add oauth flow: %w", err), state, codeVerifier, redirectUrlString),
+				ServerError: altshiftErrors.New(fmt.Errorf("add oauth flow: %w", err), redirectUrlString),
 			}
 		}
 		if oauthFlow == nil {

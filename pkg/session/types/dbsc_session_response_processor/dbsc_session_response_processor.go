@@ -87,7 +87,7 @@ func (p *Processor) processWithRegisteredKey(ctx context.Context, input *Input, 
 		authenticated_token_config.WithSignatureVerifier(namedVerifier),
 	)
 	if err != nil {
-		wrappedErr := altshiftErrors.New(fmt.Errorf("authenticated jwt token new: %w", err), tokenString)
+		wrappedErr := altshiftErrors.New(fmt.Errorf("authenticated jwt token new: %w", err))
 		if altshiftErrors.IsAny(wrappedErr, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
@@ -129,7 +129,7 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 
 	token, err := altshiftJwtToken.New(tokenString)
 	if err != nil {
-		wrappedErr := altshiftErrors.New(fmt.Errorf("new token: %w", err), tokenString)
+		wrappedErr := altshiftErrors.New(fmt.Errorf("new token: %w", err))
 		if errors.Is(err, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,
@@ -261,7 +261,7 @@ func (p *Processor) Process(ctx context.Context, input *Input) ([]byte, *respons
 	if err != nil {
 		wrappedErr := altshiftErrors.New(
 			fmt.Errorf("authenticated jwt token new: %w", err),
-			tokenString, authenticationId,
+			authenticationId,
 		)
 		if altshiftErrors.IsAny(wrappedErr, altshiftErrors.ErrValidationError, altshiftErrors.ErrVerificationError, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{

@@ -71,7 +71,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 
 		authenticatedToken, err := authenticator.Authenticate(ctx, tokenString)
 		if err != nil {
-			wrappedErr := altshiftErrors.New(fmt.Errorf("authenticator authenticate: %w", err), tokenString)
+			wrappedErr := altshiftErrors.New(fmt.Errorf("authenticator authenticate: %w", err))
 
 			if stdErrors.Is(err, jwtErrors.ErrExpExpired) {
 				return nil, &response_error.ResponseError{
@@ -114,7 +114,7 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 		claims, err := registered_claims.New(authenticatedToken.Payload)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ClientError: altshiftErrors.New(fmt.Errorf("registered claims new: %w", err), authenticatedToken.Payload),
+				ClientError: altshiftErrors.New(fmt.Errorf("registered claims new: %w", err)),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The token claims are malformed."),

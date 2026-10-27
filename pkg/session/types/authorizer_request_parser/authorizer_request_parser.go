@@ -73,7 +73,7 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 	payload := authenticatedJwtToken.Payload
 	sessionToken, err := session_token.ParsePayload(payload)
 	if err != nil {
-		wrappedErr := altshiftErrors.New(fmt.Errorf("session token parse payload: %w", err), payload)
+		wrappedErr := altshiftErrors.New(fmt.Errorf("session token parse payload: %w", err))
 		if errors.Is(err, altshiftErrors.ErrParseError) {
 			return nil, &response_error.ResponseError{
 				ClientError: wrappedErr,

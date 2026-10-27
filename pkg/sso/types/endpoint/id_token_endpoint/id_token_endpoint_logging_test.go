@@ -3,18 +3,24 @@ package id_token_endpoint
 import (
 	"bufio"
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
 	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
@@ -262,4 +268,120 @@ func slicesEqual(got []any, want []any) bool {
 		}
 	}
 	return true
+}
+
+// clientErrorMessage is the message the mux logs a refused request under.
+const clientErrorMessage = "A client error occurred."
+
+/*
+ * A refused ID token is not attached to the endpoint's own error, which the log writes out: an ID
+ * token signed for another client is a credential there, and the log is no place for one. Only the
+ * endpoint's own error is held to it here; the layers of utils_go beneath carry their own rule.
+ */
+//nolint:paralleltest // Swaps the global slog default, as TestSignInLogging does.
+func TestRefusalLogging(t *testing.T) {
+	otherPrivateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("ecdsa generate key: %v", err)
+	}
+	otherMethod, err := altshiftCryptoEcdsa.FromPrivateKey(otherPrivateKey)
+	if err != nil {
+		t.Fatalf("ecdsa from private key: %v", err)
+	}
+
+	payload := map[string]any{
+		"iss":           testIssuer,
+		"aud":           testAudience,
+		"iat":           time.Now().Add(-time.Minute).Unix(),
+		"exp":           time.Now().Add(10 * time.Minute).Unix(),
+		"verified":      true,
+		"email_address": ssoTesting.EmailAddress,
+	}
+
+	// Signed by a key other than the one its "kid" names, so the authenticator refuses it.
+	tokenString, err := (&altshiftJwtToken.Token{
+		Header:  map[string]any{"typ": "JWT", "kid": ssoTesting.KeyId},
+		Payload: payload,
+	}).Encode(otherMethod)
+	if err != nil {
+		t.Fatalf("token encode: %v", err)
+	}
+
+	testCases := []struct {
+		name  string
+		token string
+	}{
+		{name: "signed by another key", token: tokenString},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			var logBuffer bytes.Buffer
+			httpContextExtractor := http_context_extractor.New()
+			logger := altshiftContextLogger.New(
+				slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+				&altshiftLog.ErrorContextExtractor{
+					ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
+				},
+				httpContextExtractor,
+			)
+			previousLogger := slog.Default()
+			slog.SetDefault(logger)
+			defer slog.SetDefault(previousLogger)
+
+			testEndpoint, err := New[*ssoTesting.ProviderClaims](defaultPath)
+			if err != nil {
+				t.Fatalf("%s: new endpoint: %v", testCase.name, err)
+			}
+			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
+				t.Fatalf("%s: initialize: %v", testCase.name, err)
+			}
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			muxTesting.TestArgs(t, &muxTesting.Args{
+				Path:                  testEndpoint.Path,
+				Method:                testEndpoint.Method,
+				Headers:               [][2]string{{"Authorization", "Bearer " + testCase.token}},
+				ExpectedStatusCode:    http.StatusBadRequest,
+				ExpectedProblemDetail: &problem_detail.Detail{Detail: "Invalid id token."},
+			}, httpServer.URL)
+
+			entry := findLogEntry(t, &logBuffer, clientErrorMessage)
+			errorObject, _ := entry["error"].(map[string]any)
+			if errorObject == nil {
+				t.Fatalf("%s: the log entry has no error: %v", testCase.name, entry)
+			}
+			if input, ok := errorObject["input"]; ok {
+				t.Errorf("%s: the endpoint's error carries an input: %v", testCase.name, input)
+			}
+			topLevel := fmt.Sprint(errorObject["message"], errorObject["input"])
+			if strings.Contains(topLevel, testCase.token) {
+				t.Errorf("%s: the endpoint's error carries the token", testCase.name)
+			}
+		})
+	}
+}
+
+// findLogEntry is the first log entry with the message given.
+func findLogEntry(t *testing.T, buffer *bytes.Buffer, message string) map[string]any {
+	t.Helper()
+
+	scanner := bufio.NewScanner(bytes.NewReader(buffer.Bytes()))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var entry map[string]any
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		if entry["msg"] == message {
+			return entry
+		}
+	}
+
+	t.Fatalf("no log entry with msg %q found in:\n%s", message, buffer.String())
+	return nil
 }
