@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -175,7 +176,8 @@ func TestMagicLinkEndpoints_Masks(t *testing.T) {
 				}
 			} else if bodyFields == nil || len(bodyFields.Request) != 1 || bodyFields.Request[0].Url == nil ||
 				bodyFields.Request[0].Url.Path != testCase.path || bodyFields.Request[0].Url.Domain != "" ||
-				!bodyFields.Request[0].AllValues || len(bodyFields.Response) != 0 {
+				!bodyFields.Request[0].AllValues || !slices.Contains(bodyFields.Request[0].KeptNames, "email_address") ||
+				len(bodyFields.Response) != 0 {
 				t.Errorf("%s: masked body fields %+v, want every value of the requests on its own path", testCase.name, bodyFields)
 			}
 		})

@@ -379,11 +379,12 @@ func (e *Endpoint) MaskedUrlParams() []*schema.Url {
 // the address typed into the form, which the log writes with every request, whether the address
 // has an account or not, and whether it is an address at all -- something else typed into the field
 // is as likely. Every value rather than the address's field, because the client chooses the body:
-// the address sent under another member, or in a list, is masked all the same.
+// the address sent under another member, in a list, or as a member's name, is masked all the same.
+// The body's own members keep their names, which say what was sent.
 func (e *Endpoint) MaskedBodyFields() (*log_masking.BodyFields, error) {
 	return &log_masking.BodyFields{
 		Request: []*http_context_extractor_config.MaskedBodyFields{
-			{Url: &schema.Url{Path: e.Path}, AllValues: true},
+			{Url: &schema.Url{Path: e.Path}, AllValues: true, KeptNames: []string{"email_address", "redirect"}},
 		},
 	}, nil
 }

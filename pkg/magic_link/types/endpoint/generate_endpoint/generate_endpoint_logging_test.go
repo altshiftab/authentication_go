@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/altshiftab/authentication_go/pkg/log_masking"
@@ -47,6 +48,8 @@ func TestRequestLogging(t *testing.T) {
 		wantStatus    int
 		wantDetail    string
 		wantHash      string
+		// wantKept is what the log keeps of the body: the shape of what was sent.
+		wantKept []string
 	}{
 		{
 			name:          "an address with an account",
@@ -54,6 +57,7 @@ func TestRequestLogging(t *testing.T) {
 			accountExists: true,
 			wantStatus:    http.StatusNoContent,
 			wantHash:      hasher.HashEmailAddress(magicLinkTesting.ValidEmail),
+			wantKept:      []string{`{\"email_address\":\"(MASKED)\"}`},
 		},
 		{
 			name:       "an address with no account",
@@ -160,6 +164,11 @@ func TestRequestLogging(t *testing.T) {
 			for _, secret := range secrets {
 				if found := logMaskingTesting.FindAddress(written, secret); len(found) != 0 {
 					t.Errorf("%s: %q is in the log %q: %s", testCase.name, secret, found, written)
+				}
+			}
+			for _, kept := range testCase.wantKept {
+				if !strings.Contains(written, kept) {
+					t.Errorf("%s: %s is not in the log: %s", testCase.name, kept, written)
 				}
 			}
 			if testCase.wantHash != "" && !bytes.Contains(logBuffer.Bytes(), []byte(testCase.wantHash)) {
