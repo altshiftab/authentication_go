@@ -30,6 +30,14 @@ type Token struct {
 	TenantId            string
 	TenantName          string
 	Roles               []string
+
+	// KeyThumbprint is the "cnf.jkt" of RFC 9449 §6.1: the RFC 7638 thumbprint of the key the token
+	// is bound to, which every request presenting it must carry a proof by. Empty for a token that is
+	// bound to nothing, as every browser session is.
+	//
+	// It sits beside Claims rather than in them because session_claims is utils_go's and does not
+	// know the claim: Encode writes it into the payload, and ParsePayload reads it back.
+	KeyThumbprint string
 }
 
 func (t *Token) GetUser() *schema.User {
@@ -92,6 +100,13 @@ func (t *Token) Encode(signer interfaces.NamedSigner) (string, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return "", altshiftErrors.NewWithTrace(fmt.Errorf("json unmarshal (claims data): %w", err), data)
+	}
+
+	if keyThumbprint := t.KeyThumbprint; keyThumbprint != "" {
+		if payload == nil {
+			return "", altshiftErrors.NewWithTrace(nil_error.New("payload"))
+		}
+		payload["cnf"] = map[string]any{"jkt": keyThumbprint}
 	}
 
 	token := altshiftJwtToken.Token{Payload: payload}
@@ -184,6 +199,56 @@ func (t *Token) Refresh(
 	newSessionToken.Roles = account.Roles
 
 	return &newSessionToken, nil
+}
+
+// ParsePayload reads a token from a verified token's payload: its session claims, as Parse does, and
+// the key the token is bound to, if any.
+//
+// A "cnf" that is there and cannot be read is a parse error, not a token without a binding: a
+// confirmation this library cannot check must never come out as a bearer token. RFC 7800 allows
+// members other than "jkt"; they are ignored, and "jkt" is required.
+func ParsePayload(payload map[string]any) (*Token, error) {
+	if payload == nil {
+		return nil, nil
+	}
+
+	claims, err := session_claims.New(payload)
+	if err != nil {
+		return nil, altshiftErrors.New(fmt.Errorf("session claims new: %w", err), payload)
+	}
+	if claims == nil {
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("session claims"))
+	}
+
+	token, err := Parse(claims)
+	if err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	if token == nil {
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("session token"))
+	}
+
+	if confirmation, ok := payload["cnf"]; ok {
+		confirmationMap, ok := confirmation.(map[string]any)
+		if !ok {
+			return nil, altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: the cnf claim is not an object", altshiftErrors.ErrParseError),
+				confirmation,
+			)
+		}
+
+		keyThumbprint, ok := confirmationMap["jkt"].(string)
+		if !ok || keyThumbprint == "" {
+			return nil, altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: the cnf claim holds no key thumbprint", altshiftErrors.ErrParseError),
+				confirmationMap,
+			)
+		}
+
+		token.KeyThumbprint = keyThumbprint
+	}
+
+	return token, nil
 }
 
 func Parse(claims *session_claims.Claims) (*Token, error) {

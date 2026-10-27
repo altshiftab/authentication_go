@@ -19,6 +19,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie/session_cookie_config"
+	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/mint_token_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
@@ -553,10 +554,19 @@ func (m *Manager) RefreshSession(
 // against a key the account registered is carried in a header by a script, and has no cookie to
 // be put in -- while everything that decides what the token says, down to the shape of "sub"
 // and "jti", is the same and belongs in one place rather than in a copy per caller.
+//
+// mint_token_config.WithKeyThumbprint binds the token to a key (RFC 9449): the thumbprint of the
+// key whose DPoP proof the token was asked for with, which every request presenting the token must
+// then carry a proof by. Without it the token is a bearer token, as before. A browser session is
+// never bound; DBSC binds its cookie instead.
+//
+// mint_token_config.WithAudience names the one service the token is for, in place of the cookie
+// domain every service sharing the session accepts.
 func (m *Manager) MintToken(
 	authentication *authenticationPkg.Authentication,
 	authenticationMethod string,
 	sessionDuration time.Duration,
+	options ...mint_token_config.Option,
 ) (*session_token.Token, string, *response_error.ResponseError) {
 	if authentication == nil {
 		return nil, "", &response_error.ResponseError{
@@ -577,7 +587,12 @@ func (m *Manager) MintToken(
 		}
 	}
 
-	audience := m.CookieDomain
+	config := mint_token_config.New(options...)
+
+	audience := config.Audience
+	if audience == "" {
+		audience = m.CookieDomain
+	}
 	if audience == "" {
 		return nil, "", &response_error.ResponseError{
 			ServerError: altshiftErrors.NewWithTrace(empty_error.New("audience (cookie domain)")),
@@ -712,6 +727,8 @@ func (m *Manager) MintToken(
 			ServerError: altshiftErrors.NewWithTrace(nil_error.New("session token")),
 		}
 	}
+
+	sessionToken.KeyThumbprint = config.KeyThumbprint
 
 	sessionTokenString, err := sessionToken.Encode(signer)
 	if err != nil {

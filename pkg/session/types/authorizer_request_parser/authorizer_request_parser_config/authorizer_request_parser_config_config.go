@@ -1,6 +1,7 @@
 package authorizer_request_parser_config
 
 import (
+	"github.com/altshiftab/authentication_go/pkg/dpop/types/proof_verifier"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_cookie_extractor"
@@ -30,6 +31,13 @@ type Config struct {
 	AllowedRoles          []string
 	AllowedTenantId       string
 	SuperAdminRoles       []string
+
+	// ProofVerifier checks the DPoP proof a bound token is presented with. Without one the
+	// authorizer refuses every bound token, which is right for one that was never meant to see one.
+	ProofVerifier *proof_verifier.Verifier
+
+	// RequireBoundToken refuses tokens bound to no key.
+	RequireBoundToken bool
 }
 
 type Option func(*Config)
@@ -76,6 +84,29 @@ func WithAllowedRoles(allowedRoles ...string) Option {
 func WithAllowedTenantId(allowedTenantId string) Option {
 	return func(config *Config) {
 		config.AllowedTenantId = allowedTenantId
+	}
+}
+
+// WithProofVerifier is what checks the DPoP proof a bound token comes with. It is needed by an
+// authorizer whose token extractor reads the DPoP scheme, and by one that requires bound tokens.
+func WithProofVerifier(proofVerifier *proof_verifier.Verifier) Option {
+	return func(config *Config) {
+		config.ProofVerifier = proofVerifier
+	}
+}
+
+// WithRequireBoundToken refuses a token bound to no key. A copy of such a token, taken in transit,
+// from a log or by a service it was sent to, is as good as the original; an endpoint that wants that
+// ruled out asks for it here.
+//
+// Off by default, for the reason the authentication methods are an allow-list: nothing an
+// authorizer accepted before the library knew DPoP is refused by it now without having been asked.
+// A bound token, though, is held to its binding by every authorizer whatever this says -- presented
+// without its proof it is refused (RFC 9449 §7.2) -- so the choice here is only about the tokens
+// that are bound to nothing.
+func WithRequireBoundToken(requireBoundToken bool) Option {
+	return func(config *Config) {
+		config.RequireBoundToken = requireBoundToken
 	}
 }
 

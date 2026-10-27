@@ -467,3 +467,200 @@ func TestVerifyAuthentication(t *testing.T) {
 		})
 	}
 }
+
+// decodePayload reads an encoded token's payload without verifying it, as the tests of what Encode
+// writes need.
+func decodePayload(t *testing.T, tokenString string) map[string]any {
+	t.Helper()
+
+	tokenParts := strings.Split(tokenString, ".")
+	if len(tokenParts) != 3 {
+		t.Fatalf("jwt part count: got %d", len(tokenParts))
+	}
+
+	payloadData, err := base64.RawURLEncoding.DecodeString(tokenParts[1])
+	if err != nil {
+		t.Fatalf("base64 decode payload: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(payloadData, &payload); err != nil {
+		t.Fatalf("json unmarshal payload: %v", err)
+	}
+
+	return payload
+}
+
+func TestEncode_KeyThumbprint(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("ed25519 generate key: %v", err)
+	}
+	signer := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+
+	testCases := []struct {
+		name          string
+		keyThumbprint string
+		wantCnf       any
+	}{
+		{name: "a bound token", keyThumbprint: "thumbprint", wantCnf: map[string]any{"jkt": "thumbprint"}},
+		{name: "a bearer token", keyThumbprint: ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			token, err := Parse(makeClaims("auth-id:session-id", "subject-id:test@example.com", "", nil))
+			if err != nil {
+				t.Fatalf("%s: parse: %v", testCase.name, err)
+			}
+			token.KeyThumbprint = testCase.keyThumbprint
+
+			tokenString, err := token.Encode(signer)
+			if err != nil {
+				t.Fatalf("%s: encode: %v", testCase.name, err)
+			}
+
+			cnf, ok := decodePayload(t, tokenString)["cnf"]
+			if testCase.wantCnf == nil {
+				if ok {
+					t.Errorf("%s: cnf = %v, want none", testCase.name, cnf)
+				}
+				return
+			}
+			cnfMap, _ := cnf.(map[string]any)
+			wantMap, _ := testCase.wantCnf.(map[string]any)
+			if cnfMap == nil || cnfMap["jkt"] != wantMap["jkt"] || len(cnfMap) != len(wantMap) {
+				t.Errorf("%s: cnf = %v, want %v", testCase.name, cnf, testCase.wantCnf)
+			}
+		})
+	}
+}
+
+func TestParsePayload(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("ed25519 generate key: %v", err)
+	}
+	signer := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+
+	// The payload of a real token, so that what ParsePayload reads is what Encode writes.
+	payloadWith := func(cnf any, hasCnf bool) map[string]any {
+		claims := makeClaims("auth-id:session-id", "subject-id:test@example.com", "", []string{"role-a"})
+		// Set here, as makeClaims leaves its authorizedParty argument unused.
+		claims.AuthorizedParty = "tenant-id:tenant-name"
+		token, err := Parse(claims)
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		tokenString, err := token.Encode(signer)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		payload := decodePayload(t, tokenString)
+		if hasCnf {
+			payload["cnf"] = cnf
+		}
+		return payload
+	}
+
+	testCases := []struct {
+		name              string
+		payload           map[string]any
+		wantKeyThumbprint string
+		wantErr           error
+	}{
+		{name: "no cnf", payload: payloadWith(nil, false)},
+		{
+			name:              "a key thumbprint",
+			payload:           payloadWith(map[string]any{"jkt": "thumbprint"}, true),
+			wantKeyThumbprint: "thumbprint",
+		},
+		{
+			// RFC 7800 allows other confirmation members; "jkt" is the one this library checks.
+			name:              "a key thumbprint and another member",
+			payload:           payloadWith(map[string]any{"jkt": "thumbprint", "x5t#S256": "other"}, true),
+			wantKeyThumbprint: "thumbprint",
+		},
+		{name: "cnf as a string", payload: payloadWith("thumbprint", true), wantErr: altshiftErrors.ErrParseError},
+		{name: "cnf as null", payload: payloadWith(nil, true), wantErr: altshiftErrors.ErrParseError},
+		{name: "cnf empty", payload: payloadWith(map[string]any{}, true), wantErr: altshiftErrors.ErrParseError},
+		{
+			// Bound by a method this library cannot check: refused rather than read as a bearer token.
+			name:    "cnf without jkt",
+			payload: payloadWith(map[string]any{"x5t#S256": "other"}, true),
+			wantErr: altshiftErrors.ErrParseError,
+		},
+		{name: "jkt empty", payload: payloadWith(map[string]any{"jkt": ""}, true), wantErr: altshiftErrors.ErrParseError},
+		{name: "jkt a number", payload: payloadWith(map[string]any{"jkt": 1.0}, true), wantErr: altshiftErrors.ErrParseError},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			token, err := ParsePayload(testCase.payload)
+
+			if testCase.wantErr != nil {
+				if !errors.Is(err, testCase.wantErr) {
+					t.Errorf("%s: got %v, want %v", testCase.name, err, testCase.wantErr)
+				}
+				if token != nil {
+					t.Errorf("%s: a token came back with the refusal", testCase.name)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("%s: unexpected error: %v", testCase.name, err)
+			}
+			if token == nil {
+				t.Fatalf("%s: no token", testCase.name)
+			}
+			if token.KeyThumbprint != testCase.wantKeyThumbprint {
+				t.Errorf("%s: key thumbprint %q, want %q", testCase.name, token.KeyThumbprint, testCase.wantKeyThumbprint)
+			}
+			// The session claims are read as Parse reads them.
+			if token.AuthenticationId != "auth-id" || token.SubjectId != "subject-id" || token.TenantId != "tenant-id" {
+				t.Errorf("%s: claims not read: %+v", testCase.name, token)
+			}
+		})
+	}
+}
+
+func TestRefresh_KeyThumbprint(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		keyThumbprint string
+	}{
+		{name: "a bound token stays bound", keyThumbprint: "thumbprint"},
+		{name: "a bearer token stays unbound"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			token, err := Parse(makeClaims("auth-id:session-id", "subject-id:test@example.com", "", nil))
+			if err != nil {
+				t.Fatalf("%s: parse: %v", testCase.name, err)
+			}
+			token.KeyThumbprint = testCase.keyThumbprint
+
+			refreshed, err := token.Refresh(makeAuthentication(time.Now().Add(time.Hour)), time.Hour, "refresh")
+			if err != nil {
+				t.Fatalf("%s: refresh: %v", testCase.name, err)
+			}
+			if refreshed.KeyThumbprint != testCase.keyThumbprint {
+				t.Errorf("%s: key thumbprint %q, want %q", testCase.name, refreshed.KeyThumbprint, testCase.keyThumbprint)
+			}
+		})
+	}
+}

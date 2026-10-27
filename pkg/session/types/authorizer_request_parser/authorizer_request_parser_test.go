@@ -267,7 +267,7 @@ func TestNew(t *testing.T) {
 	)
 
 	opts := []altshiftTestingCmp.Option{
-		altshiftTestingCmp.IgnoreFields(Parser{}, "verifier", "JwtExtractor"),
+		altshiftTestingCmp.IgnoreFields(Parser{}, "verifier", "JwtExtractor", "proofVerifier", "requireBoundToken"),
 	}
 
 	type args struct {

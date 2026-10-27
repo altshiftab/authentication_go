@@ -18,6 +18,7 @@ import (
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/customer"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
+	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/mint_token_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
 	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
@@ -1039,6 +1040,134 @@ func TestManager_MintToken(t *testing.T) {
 			}
 			if expected := time.Now().Add(15 * time.Minute); expiresAt.Time.Sub(expected).Abs() > time.Minute {
 				t.Errorf("token expiry %s, expected roughly %s", expiresAt.Time, expected)
+			}
+		})
+	}
+}
+
+func TestManager_MintToken_KeyThumbprint(t *testing.T) {
+	t.Parallel()
+
+	signer := newTestSigner(t)
+
+	testCases := []struct {
+		name              string
+		options           []mint_token_config.Option
+		wantKeyThumbprint string
+	}{
+		{name: "a bearer token, as before"},
+		{
+			name:              "a token bound to a key",
+			options:           []mint_token_config.Option{mint_token_config.WithKeyThumbprint("thumbprint")},
+			wantKeyThumbprint: "thumbprint",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			authentication := newAuthentication()
+			m := newManager(t, signer, &stubs{account: newAccount(), authentication: authentication})
+			defer m.Db.Close()
+
+			sessionToken, sessionTokenString, respErr := m.MintToken(
+				authentication,
+				authentication_method.ApiKey,
+				15*time.Minute,
+				testCase.options...,
+			)
+			if respErr != nil {
+				t.Fatalf("%s: mint token: %+v", testCase.name, respErr)
+			}
+			if sessionToken == nil {
+				t.Fatalf("%s: no token", testCase.name)
+			}
+			if sessionToken.KeyThumbprint != testCase.wantKeyThumbprint {
+				t.Errorf("%s: key thumbprint %q, want %q", testCase.name, sessionToken.KeyThumbprint, testCase.wantKeyThumbprint)
+			}
+
+			// What a consumer reads from the encoded token, rather than what the struct says.
+			tokenParts := strings.Split(sessionTokenString, ".")
+			if len(tokenParts) != 3 {
+				t.Fatalf("%s: jwt part count: got %d", testCase.name, len(tokenParts))
+			}
+			payloadData, err := base64.RawURLEncoding.DecodeString(tokenParts[1])
+			if err != nil {
+				t.Fatalf("%s: base64 decode payload: %v", testCase.name, err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(payloadData, &payload); err != nil {
+				t.Fatalf("%s: json unmarshal payload: %v", testCase.name, err)
+			}
+
+			decoded, err := session_token.ParsePayload(payload)
+			if err != nil {
+				t.Fatalf("%s: parse payload: %v", testCase.name, err)
+			}
+			if decoded.KeyThumbprint != testCase.wantKeyThumbprint {
+				t.Errorf("%s: encoded key thumbprint %q, want %q", testCase.name, decoded.KeyThumbprint, testCase.wantKeyThumbprint)
+			}
+			if _, hasCnf := payload["cnf"]; hasCnf != (testCase.wantKeyThumbprint != "") {
+				t.Errorf("%s: cnf present = %v", testCase.name, hasCnf)
+			}
+		})
+	}
+}
+
+func TestManager_MintToken_Audience(t *testing.T) {
+	t.Parallel()
+
+	signer := newTestSigner(t)
+
+	testCases := []struct {
+		name         string
+		options      []mint_token_config.Option
+		wantAudience string
+	}{
+		{name: "the cookie domain, as before", wantAudience: testCookieDomain},
+		{
+			name:         "one service",
+			options:      []mint_token_config.Option{mint_token_config.WithAudience("https://vocab.example.com")},
+			wantAudience: "https://vocab.example.com",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			authentication := newAuthentication()
+			m := newManager(t, signer, &stubs{account: newAccount(), authentication: authentication})
+			defer m.Db.Close()
+
+			_, sessionTokenString, respErr := m.MintToken(
+				authentication,
+				authentication_method.ApiKey,
+				15*time.Minute,
+				testCase.options...,
+			)
+			if respErr != nil {
+				t.Fatalf("%s: mint token: %+v", testCase.name, respErr)
+			}
+
+			// What a consumer reads from the encoded token.
+			tokenParts := strings.Split(sessionTokenString, ".")
+			if len(tokenParts) != 3 {
+				t.Fatalf("%s: jwt part count: got %d", testCase.name, len(tokenParts))
+			}
+			payloadData, err := base64.RawURLEncoding.DecodeString(tokenParts[1])
+			if err != nil {
+				t.Fatalf("%s: base64 decode payload: %v", testCase.name, err)
+			}
+			var payload struct {
+				Audience claim_strings.ClaimStrings `json:"aud"`
+			}
+			if err := json.Unmarshal(payloadData, &payload); err != nil {
+				t.Fatalf("%s: json unmarshal payload: %v", testCase.name, err)
+			}
+			if !slices.Equal(payload.Audience, claim_strings.ClaimStrings{testCase.wantAudience}) {
+				t.Errorf("%s: audience %v, want [%s]", testCase.name, payload.Audience, testCase.wantAudience)
 			}
 		})
 	}
