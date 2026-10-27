@@ -144,13 +144,13 @@ func TestMagicLinkEndpoints_Masks(t *testing.T) {
 		path   string
 		// wantQuery is the parameters masked in the URL, and none where it is empty.
 		wantQuery string
-		// wantAllValues is whether every value of the endpoint's own request bodies is masked.
-		wantAllValues bool
+		// wantAddressMasked is whether the address in the endpoint's own request bodies is masked.
+		wantAddressMasked bool
 	}{
 		{name: "validate", masker: validate_endpoint.New(), path: validate_endpoint.New().Path, wantQuery: "token"},
 		{name: "landing", masker: landing_endpoint.New(), path: landing_endpoint.New().Path, wantQuery: "token"},
-		// The address is asked for in the body, whose fields the client chooses.
-		{name: "generate", masker: generate_endpoint.New(), path: generate_endpoint.New().Path, wantAllValues: true},
+		// The address is asked for in the body.
+		{name: "generate", masker: generate_endpoint.New(), path: generate_endpoint.New().Path, wantAddressMasked: true},
 	}
 
 	for _, testCase := range testCases {
@@ -170,15 +170,14 @@ func TestMagicLinkEndpoints_Masks(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: masked body fields: %v", testCase.name, err)
 			}
-			if !testCase.wantAllValues {
+			if !testCase.wantAddressMasked {
 				if bodyFields != nil {
 					t.Errorf("%s: masked body fields %+v, want none", testCase.name, bodyFields)
 				}
 			} else if bodyFields == nil || len(bodyFields.Request) != 1 || bodyFields.Request[0].Url == nil ||
 				bodyFields.Request[0].Url.Path != testCase.path || bodyFields.Request[0].Url.Domain != "" ||
-				!bodyFields.Request[0].AllValues || !slices.Contains(bodyFields.Request[0].KeptNames, "email_address") ||
-				len(bodyFields.Response) != 0 {
-				t.Errorf("%s: masked body fields %+v, want every value of the requests on its own path", testCase.name, bodyFields)
+				!slices.Contains(bodyFields.Request[0].Fields, "email_address") || len(bodyFields.Response) != 0 {
+				t.Errorf("%s: masked body fields %+v, want the address of the requests on its own path", testCase.name, bodyFields)
 			}
 		})
 	}

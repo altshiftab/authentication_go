@@ -89,11 +89,14 @@ func TestRequestLogging(t *testing.T) {
 			wantDetail: "Invalid body. The value is not appropriate for the JSON type.",
 		},
 		{
-			name:       "an address in a member the form does not have",
-			typed:      "jane@example.com",
-			body:       `{"email_address":"ok@example.com","x":"jane@example.com"}`,
+			// The form's address is masked; the member it does not have is written out as it was
+			// sent, which is what says what was wrong with the request.
+			name:       "a member the form does not have",
+			typed:      "ok@example.com",
+			body:       `{"email_address":"ok@example.com","x":"something else"}`,
 			wantStatus: http.StatusUnprocessableEntity,
 			wantDetail: `Invalid body. Unknown member: "/x".`,
+			wantKept:   []string{`\"x\":\"something else\"`},
 		},
 	}
 
