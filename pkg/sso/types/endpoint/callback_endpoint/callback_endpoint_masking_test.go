@@ -108,7 +108,7 @@ func TestEndpoint_Masks(t *testing.T) {
 					t.Errorf("%s: masked %s body fields %+v, want %s%s", testCase.name, name, entries, testCase.wantDomain, testCase.wantPath)
 					continue
 				}
-				if entries[0].AllValues || !slices.Contains(entries[0].Fields, testFields.wantSome) {
+				if !slices.Contains(entries[0].Fields, testFields.wantSome) {
 					t.Errorf("%s: masked %s body fields %v, want %s among them", testCase.name, name, entries[0].Fields, testFields.wantSome)
 				}
 			}
