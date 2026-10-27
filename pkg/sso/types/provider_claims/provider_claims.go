@@ -79,6 +79,10 @@ func (c *AuthenticationContext) StrongAuthentication() bool {
 	return c.HasAnyMethodReference(StrongAuthenticationMethodReferences)
 }
 
+// GoogleIssuers are the two spellings Google writes in an ID token's "iss", which an endpoint taking
+// Google's tokens is to accept and nothing else (OpenID Connect Core §3.1.3.7).
+var GoogleIssuers = []string{"https://accounts.google.com", "accounts.google.com"}
+
 type GoogleClaims struct {
 	Email         string   `json:"email"`
 	EmailVerified bool     `json:"email_verified"`

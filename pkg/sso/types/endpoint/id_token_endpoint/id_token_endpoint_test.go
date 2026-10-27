@@ -14,6 +14,7 @@ import (
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/id_token_endpoint/id_token_endpoint_config"
 	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
+	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
@@ -25,7 +26,13 @@ import (
 
 const (
 	defaultPath = "/id-token"
+
+	// The audience and issuer the test tokens are minted with.
+	testAudience = "test-client"
+	testIssuer   = "aux"
 )
+
+var testIssuers = []string{testIssuer}
 
 var sessionManager *session_manager.Manager
 var idTokenAuthenticator *authenticator.AuthenticatorWithKeyHandler
@@ -108,7 +115,7 @@ func TestEndpoint(t *testing.T) {
 				t.Fatalf("new endpoint: %v", err)
 			}
 
-			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager); err != nil {
+			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 				t.Fatalf("test endpoint initialize: %v", err)
 			}
 
@@ -173,24 +180,55 @@ func TestInitialize(t *testing.T) {
 		name                 string
 		idTokenAuthenticator *authenticator.AuthenticatorWithKeyHandler
 		sessionManager       *session_manager.Manager
+		audience             string
+		issuers              []string
 		wantErr              error
 	}{
 		{
 			name:                 "valid arguments",
 			idTokenAuthenticator: idTokenAuthenticator,
 			sessionManager:       sessionManager,
+			audience:             testAudience,
+			issuers:              testIssuers,
 		},
 		{
 			name:                 "nil id token authenticator",
 			idTokenAuthenticator: nil,
 			sessionManager:       sessionManager,
+			audience:             testAudience,
+			issuers:              testIssuers,
 			wantErr:              nil_error.New("id token authenticator"),
 		},
 		{
 			name:                 "nil session manager",
 			idTokenAuthenticator: idTokenAuthenticator,
 			sessionManager:       nil,
+			audience:             testAudience,
+			issuers:              testIssuers,
 			wantErr:              nil_error.New("session manager"),
+		},
+		{
+			// Refused at startup: without it, every token the provider signs for anyone is taken.
+			name:                 "no audience",
+			idTokenAuthenticator: idTokenAuthenticator,
+			sessionManager:       sessionManager,
+			issuers:              testIssuers,
+			wantErr:              empty_error.New("audience"),
+		},
+		{
+			name:                 "no issuers",
+			idTokenAuthenticator: idTokenAuthenticator,
+			sessionManager:       sessionManager,
+			audience:             testAudience,
+			wantErr:              empty_error.New("issuers"),
+		},
+		{
+			name:                 "an empty issuer",
+			idTokenAuthenticator: idTokenAuthenticator,
+			sessionManager:       sessionManager,
+			audience:             testAudience,
+			issuers:              []string{testIssuer, ""},
+			wantErr:              empty_error.New("issuers"),
 		},
 	}
 
@@ -203,7 +241,12 @@ func TestInitialize(t *testing.T) {
 				t.Fatalf("new endpoint: %v", err)
 			}
 
-			err = testEndpoint.Initialize(testCase.idTokenAuthenticator, testCase.sessionManager)
+			err = testEndpoint.Initialize(
+				testCase.idTokenAuthenticator,
+				testCase.sessionManager,
+				testCase.audience,
+				testCase.issuers,
+			)
 			altshiftTestingCmp.CompareErr(t, err, testCase.wantErr)
 		})
 	}
@@ -217,7 +260,7 @@ func TestEndpointIdTokenReuse(t *testing.T) {
 		t.Fatalf("new endpoint: %v", err)
 	}
 
-	if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager); err != nil {
+	if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 		t.Fatalf("test endpoint initialize: %v", err)
 	}
 
@@ -282,7 +325,7 @@ func TestEndpointAlgNoneWithValidKid(t *testing.T) {
 		t.Fatalf("new endpoint: %v", err)
 	}
 
-	if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager); err != nil {
+	if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 		t.Fatalf("test endpoint initialize: %v", err)
 	}
 
@@ -386,7 +429,7 @@ func TestEndpointRequireOrganization(t *testing.T) {
 				t.Fatalf("new endpoint: %v", err)
 			}
 
-			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager); err != nil {
+			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 				t.Fatalf("test endpoint initialize: %v", err)
 			}
 
@@ -476,3 +519,112 @@ func TestNew(t *testing.T) {
 // TODO: Implement tests
 //	- Provider claims unmarshal
 //	- Create session error
+
+/*
+ * The claims that make an ID token one for this service, held by the endpoint itself. The
+ * authenticator the tests share checks the signature and nothing more, as the services' did, so
+ * each refusal here is the endpoint's own.
+ */
+func TestEndpointClaims(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	testCases := []struct {
+		name string
+		// Changes to a token for this service: a nil value removes the claim.
+		changes  map[string]any
+		accepted bool
+	}{
+		{name: "a token for this service", accepted: true},
+		{
+			name:     "an audience list naming this service",
+			changes:  map[string]any{"aud": []any{"another-client", testAudience}},
+			accepted: true,
+		},
+		{
+			// Compared with no leeway it would refuse a token minted a moment ago by a provider whose
+			// clock is a moment ahead, so it is not compared.
+			name:     "issued a moment ahead of this clock",
+			changes:  map[string]any{"iat": now.Add(5 * time.Second).Unix(), "nbf": now.Add(5 * time.Second).Unix()},
+			accepted: true,
+		},
+		{
+			// What any site the user signs in to with the provider receives.
+			name:    "a token for another app's client",
+			changes: map[string]any{"aud": "another-apps-client-id"},
+		},
+		{name: "no audience", changes: map[string]any{"aud": nil}},
+		{
+			name:    "an audience list without this service",
+			changes: map[string]any{"aud": []any{"another-client", "yet-another-client"}},
+		},
+		{name: "an audience that is a number", changes: map[string]any{"aud": 5}},
+		{name: "expired an hour ago", changes: map[string]any{"exp": now.Add(-time.Hour).Unix()}},
+		{name: "an expiry that is a string", changes: map[string]any{"exp": "1800000000"}},
+		{name: "no expiry", changes: map[string]any{"exp": nil}},
+		{name: "another issuer", changes: map[string]any{"iss": "https://attacker.example"}},
+		{name: "no issuer", changes: map[string]any{"iss": nil}},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testEndpoint, err := New[*ssoTesting.ProviderClaims](defaultPath)
+			if err != nil {
+				t.Fatalf("%s: new endpoint: %v", testCase.name, err)
+			}
+			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
+				t.Fatalf("%s: initialize: %v", testCase.name, err)
+			}
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			payload := map[string]any{
+				"iss":           testIssuer,
+				"aud":           testAudience,
+				"iat":           now.Add(-time.Minute).Unix(),
+				"nbf":           now.Add(-time.Minute).Unix(),
+				"exp":           now.Add(10 * time.Minute).Unix(),
+				"verified":      true,
+				"email_address": ssoTesting.EmailAddress,
+				// Each token distinct, as the endpoint refuses one it has seen before.
+				"jti": testCase.name,
+			}
+			for name, value := range testCase.changes {
+				if value == nil {
+					delete(payload, name)
+					continue
+				}
+				payload[name] = value
+			}
+
+			tokenString, err := (&altshiftJwtToken.Token{
+				Header:  map[string]any{"typ": "JWT", "kid": ssoTesting.KeyId},
+				Payload: payload,
+			}).Encode(idTokenMethod)
+			if err != nil {
+				t.Fatalf("%s: token encode: %v", testCase.name, err)
+			}
+
+			args := &muxTesting.Args{
+				Path:    testEndpoint.Path,
+				Method:  testEndpoint.Method,
+				Headers: [][2]string{{"Authorization", "Bearer " + tokenString}},
+			}
+			if testCase.accepted {
+				args.ExpectedStatusCode = http.StatusNoContent
+				args.ExpectedHeadersPresent = []string{"Set-Cookie"}
+			} else {
+				args.ExpectedStatusCode = http.StatusBadRequest
+				args.ExpectedProblemDetail = &problem_detail.Detail{Detail: "Invalid id token."}
+			}
+
+			muxTesting.TestArgs(t, args, httpServer.URL)
+		})
+	}
+}

@@ -94,7 +94,7 @@ func TestSignInLogging(t *testing.T) {
 			if err != nil {
 				t.Fatalf("new endpoint: %v", err)
 			}
-			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager); err != nil {
+			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 				t.Fatalf("test endpoint initialize: %v", err)
 			}
 

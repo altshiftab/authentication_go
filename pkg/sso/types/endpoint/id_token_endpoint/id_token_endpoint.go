@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -33,8 +34,12 @@ import (
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	"github.com/altshiftab/utils_go/pkg/interfaces/comparer"
 	altshiftJws "github.com/altshiftab/utils_go/pkg/json/jose/jws"
 	authenticatorPkg "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
+	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
 	"github.com/altshiftab/utils_go/pkg/schema"
 )
 
@@ -49,9 +54,20 @@ var idTokenHeaderExtractor = token_header_extractor.New(
 	token_header_extractor_config.WithProblemDetailStatusCode(http.StatusBadRequest),
 )
 
+// Initialize wires the endpoint. audience is this service's client id at the provider and issuers
+// the values the provider writes in "iss"; both are required, and the endpoint holds every token to
+// them itself, whatever the authenticator it is given checks.
+//
+// The authenticator's signature check says only that the provider signed the token, and a provider
+// signs an ID token for every client of every developer: one obtained by any site the user signs in
+// to carries the same signature and the same verified email address. An endpoint that took such a
+// token without its audience checked would hand that site a session as the user -- which is what
+// it did while the check was left to the caller, and every caller left it out.
 func (e *Endpoint[T]) Initialize(
 	idTokenAuthenticator *authenticatorPkg.AuthenticatorWithKeyHandler,
 	sessionManager *session_manager.Manager,
+	audience string,
+	issuers []string,
 ) error {
 	if idTokenAuthenticator == nil {
 		return altshiftErrors.NewWithTrace(nil_error.New("id token authenticator"))
@@ -59,6 +75,30 @@ func (e *Endpoint[T]) Initialize(
 
 	if sessionManager == nil {
 		return altshiftErrors.NewWithTrace(nil_error.New("session manager"))
+	}
+
+	if audience == "" {
+		return altshiftErrors.NewWithTrace(empty_error.New("audience"))
+	}
+
+	if len(issuers) == 0 || slices.Contains(issuers, "") {
+		return altshiftErrors.NewWithTrace(empty_error.New("issuers"))
+	}
+
+	// "iat" and "nbf" are skipped because the validator compares them with no leeway: a clock here a
+	// moment behind the provider's would refuse a token minted a moment ago. "exp" bounds its life.
+	claimsValidator := &registered_claims_validator.Validator{
+		Settings: map[string]setting.Setting{
+			"iss": setting.Required,
+			"aud": setting.Required,
+			"exp": setting.Required,
+			"iat": setting.Skip,
+			"nbf": setting.Skip,
+		},
+		Expected: &registered_claims_validator.ExpectedClaims{
+			IssuerComparer:   comparer.NewEqualComparer(slices.Clone(issuers)...),
+			AudienceComparer: comparer.NewEqualComparer(audience),
+		},
 	}
 
 	e.Handler = func(request *http.Request, _ []byte) (*muxResponse.Response, *response_error.ResponseError) {
@@ -96,6 +136,22 @@ func (e *Endpoint[T]) Initialize(
 		if authenticatedIdToken == nil {
 			return nil, &response_error.ResponseError{
 				ServerError: altshiftErrors.NewWithTrace(nil_error.New("authenticated id token")),
+			}
+		}
+
+		parsedClaims, err := registered_claims.NewParsedClaims(authenticatedIdToken.Payload)
+		if err == nil {
+			err = claimsValidator.Validate(parsedClaims)
+		}
+		if err != nil {
+			return nil, &response_error.ResponseError{
+				ClientError: altshiftErrors.NewWithTrace(
+					fmt.Errorf("%w: id token claims: %w", altshiftErrors.ErrValidationError, err),
+				),
+				ProblemDetail: problem_detail.New(
+					http.StatusBadRequest,
+					problem_detail_config.WithDetail("Invalid id token."),
+				),
 			}
 		}
 
