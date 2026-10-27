@@ -297,3 +297,14 @@ func New(options ...validate_endpoint_config.Option) *Endpoint {
 		},
 	}
 }
+
+// MaskedUrlParams is what of this endpoint's URL the log masks: the magic link's token, which signs
+// the holder in, and the access log writes the URL of every request.
+func (e *Endpoint) MaskedUrlParams() []*schema.Url {
+	return []*schema.Url{{Path: e.Path, Query: "token"}}
+}
+
+// MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
+func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
+	return nil, nil
+}

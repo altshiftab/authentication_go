@@ -10,6 +10,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/schema"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -98,6 +99,9 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	popOauthFlow                         func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)
 	problemRedirectUrls                  map[oauth_error.Category]string
 	classifyOauthError                   func(*oauth_error.Error) oauth_error.Category
+
+	// tokenEndpoint is the provider's token URL, as the log's body masks name it; set by Initialize.
+	tokenEndpoint *schema.Url
 }
 
 // Initialize wires the endpoint's runtime dependencies. origin is the base URL
@@ -122,6 +126,17 @@ func (e *Endpoint[T]) Initialize(
 	if sessionManager == nil {
 		return altshiftErrors.NewWithTrace(nil_error.New("session manager"))
 	}
+
+	// Refused here rather than met at the first sign-in: a token URL that does not parse is one the
+	// exchange cannot reach either, and the log could not be told what to mask of it.
+	tokenUrl, err := url.Parse(oauthConfig.Endpoint.TokenURL)
+	if err != nil {
+		return altshiftErrors.NewWithTrace(fmt.Errorf("url parse (token url): %w", err), oauthConfig.Endpoint.TokenURL)
+	}
+	if tokenUrl.Hostname() == "" {
+		return altshiftErrors.NewWithTrace(empty_error.New("token url host"))
+	}
+	e.tokenEndpoint = &schema.Url{Domain: tokenUrl.Hostname(), Path: tokenUrl.Path}
 
 	origin = strings.TrimRight(origin, "/")
 	problemRedirectUrls := make(map[oauth_error.Category]string, len(categoryProblemPaths))
@@ -565,4 +580,21 @@ func New[T provider_claims.ProviderClaims](path string, options ...callback_endp
 		popOauthFlow:                         config.PopOauthFlow,
 		classifyOauthError:                   config.ClassifyOauthError,
 	}, nil
+}
+
+// MaskedUrlParams is what of the callback's URL the log masks: the authorization code, which is a
+// credential until it is redeemed, the state that correlates it, and the session state some
+// providers add. The access log writes the URL of every request, so the callback's would carry them.
+func (e *Endpoint[T]) MaskedUrlParams() []*schema.Url {
+	return []*schema.Url{{Path: e.Path, Query: "code&state&session_state"}}
+}
+
+// MaskedBodyUrls is the provider's token endpoint: its request carries the client secret and the
+// code, and its response the tokens issued, and a failed exchange is logged with both. It is known
+// once the endpoint is initialized, and asking before is an error.
+func (e *Endpoint[T]) MaskedBodyUrls() ([]*schema.Url, error) {
+	if e.tokenEndpoint == nil {
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("not initialized: %w", nil_error.New("token endpoint")))
+	}
+	return []*schema.Url{e.tokenEndpoint}, nil
 }

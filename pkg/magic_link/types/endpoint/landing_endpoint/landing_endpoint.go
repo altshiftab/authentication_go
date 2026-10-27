@@ -29,6 +29,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
+	"github.com/altshiftab/utils_go/pkg/schema"
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
@@ -196,4 +197,15 @@ func New(options ...landing_endpoint_config.Option) *Endpoint {
 		UnusablePageBuilder:   config.UnusablePageBuilder,
 		ContentSecurityPolicy: config.ContentSecurityPolicy,
 	}
+}
+
+// MaskedUrlParams is what of this endpoint's URL the log masks: the magic link's token, which signs
+// the holder in, and the access log writes the URL of every request.
+func (e *Endpoint) MaskedUrlParams() []*schema.Url {
+	return []*schema.Url{{Path: e.Path, Query: "token"}}
+}
+
+// MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
+func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
+	return nil, nil
 }
