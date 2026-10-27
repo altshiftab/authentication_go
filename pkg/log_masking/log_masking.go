@@ -13,6 +13,7 @@ import (
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/schema"
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
@@ -29,6 +30,11 @@ type Masker interface {
 	// knows them, rather than an empty list, so that a service that applies the masks too early
 	// fails at startup instead of logging the exchange unmasked.
 	MaskedBodyUrls() ([]*schema.Url, error)
+
+	// MaskedHeaders are the headers of the endpoint's requests that the log masks whole: those
+	// carrying a token of which the log's own masking of a header -- the signature, and a session
+	// token's subject -- would leave readable what identifies the person.
+	MaskedHeaders() []*http_context_extractor_config.MaskedHeader
 }
 
 // Apply adds what each masker names to the extractor's masks, alongside whatever a service set
@@ -50,6 +56,7 @@ func Apply(extractor *http_context_extractor.Extractor, maskers ...Masker) error
 		}
 
 		extractor.MaskedUrlParams = append(extractor.MaskedUrlParams, masker.MaskedUrlParams()...)
+		extractor.MaskedHeaders = append(extractor.MaskedHeaders, masker.MaskedHeaders()...)
 		extractor.MaskedRequestBodyUrls = append(extractor.MaskedRequestBodyUrls, bodyUrls...)
 		extractor.MaskedResponseBodyUrls = append(extractor.MaskedResponseBodyUrls, bodyUrls...)
 	}

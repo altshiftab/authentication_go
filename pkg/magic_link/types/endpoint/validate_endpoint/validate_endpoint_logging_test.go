@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
+	logMaskingTesting "github.com/altshiftab/authentication_go/pkg/log_masking/testing"
 	magicLinkTesting "github.com/altshiftab/authentication_go/pkg/magic_link/testing"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
@@ -16,6 +18,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 )
 
 const signInMessage = "A magic link authenticated a user."
@@ -36,10 +39,36 @@ const signInMessage = "A magic link authenticated a user."
 //
 //nolint:paralleltest // Swaps the global slog default; running it in parallel would race.
 func TestSignInLogging(t *testing.T) {
+	hasher, err := pii_hasher.New(bytes.Repeat([]byte{7}, pii_hasher.MinimumKeyLength))
+	if err != nil {
+		t.Fatalf("pii hasher new: %v", err)
+	}
+
+	// The address is named by its keyed hash, and not at all without a hasher; in neither case is it
+	// written out.
+	testCases := []struct {
+		name     string
+		hasher   *pii_hasher.Hasher
+		wantHash string
+	}{
+		{name: "with a hasher", hasher: hasher, wantHash: hasher.HashEmailAddress(magicLinkTesting.ValidEmail)},
+		{name: "without a hasher"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSignInLogging(t, testCase.name, testCase.hasher, testCase.wantHash)
+		})
+	}
+}
+
+func testSignInLogging(t *testing.T, name string, hasher *pii_hasher.Hasher, wantHash string) {
+	t.Helper()
+
 	var logBuffer bytes.Buffer
 	httpContextExtractor := http_context_extractor.New()
 	logger := altshiftContextLogger.New(
-		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}),
 		&altshiftLog.ErrorContextExtractor{
 			ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
 		},
@@ -50,16 +79,21 @@ func TestSignInLogging(t *testing.T) {
 	defer slog.SetDefault(previousLogger)
 
 	testEndpoint := New()
+	testEndpoint.EmailAddressHasher = hasher
 	if err := testEndpoint.Initialize(signer, sessionManager, redirectUrl); err != nil {
 		t.Fatalf("test endpoint initialize: %v", err)
 	}
 
-	mux := &muxPkg.Mux{}
-	mux.Add(testEndpoint.Endpoint.Endpoint)
+	// Masked as a service masks it, and through New, for the request log the mux writes
+	// once a response is served: that is where a request's headers and body are written.
+	if err := log_masking.Apply(httpContextExtractor, testEndpoint); err != nil {
+		t.Fatalf("log masking apply: %v", err)
+	}
+	mux := muxPkg.New(testEndpoint.Endpoint.Endpoint)
 	httpServer := httptest.NewServer(mux)
 	defer httpServer.Close()
 
-	token := mintToken(t, defaultPayload(magicLinkTesting.ValidEmail, "logging-nonce"))
+	token := mintToken(t, defaultPayload(magicLinkTesting.ValidEmail, "logging-nonce-"+name))
 
 	muxTesting.TestArgs(
 		t,
@@ -91,14 +125,19 @@ func TestSignInLogging(t *testing.T) {
 		t.Errorf("got %d %q log entries, want 1", count, signInMessage)
 	}
 
+	if found := logMaskingTesting.FindAddress(logBuffer.String(), magicLinkTesting.ValidEmail); len(found) != 0 {
+		t.Errorf("%s: the address is in the log %q: %s", name, found, logBuffer.String())
+	}
+
 	entry := findLogEntry(t, &logBuffer, signInMessage)
 
 	user, _ := entry["user"].(map[string]any)
-	if user == nil {
-		t.Fatalf("no user in log entry: %v", entry)
-	}
-	if emailAddress, _ := user["email"].(string); emailAddress != magicLinkTesting.ValidEmail {
-		t.Errorf("user.email = %v, want %s", user["email"], magicLinkTesting.ValidEmail)
+	if wantHash == "" {
+		if user != nil {
+			t.Errorf("%s: user %v in the log entry, want none", name, user)
+		}
+	} else if hash, _ := user["hash"].(string); hash != wantHash {
+		t.Errorf("%s: user.hash = %v, want %s", name, user["hash"], wantHash)
 	}
 
 	// A magic link states nothing about how the user authenticated, so the line must not carry the

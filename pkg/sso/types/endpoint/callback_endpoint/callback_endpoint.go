@@ -7,6 +7,8 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	"github.com/altshiftab/utils_go/pkg/schema"
 	"log/slog"
 	"net/http"
@@ -96,9 +98,14 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	StrongAuthenticationMethodReferences []string
 	RequireOrganization                  bool
 	AllowedOrganizations                 []string
-	popOauthFlow                         func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)
-	problemRedirectUrls                  map[oauth_error.Category]string
-	classifyOauthError                   func(*oauth_error.Error) oauth_error.Category
+
+	// EmailAddressHasher names the address signing in by its keyed hash, on the request and on the
+	// sign-in's log line. With none, the log names no address at all.
+	EmailAddressHasher *pii_hasher.Hasher
+
+	popOauthFlow        func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)
+	problemRedirectUrls map[oauth_error.Category]string
+	classifyOauthError  func(*oauth_error.Error) oauth_error.Category
 
 	// tokenEndpoint is the provider's token URL, as the log's body masks name it; set by Initialize.
 	tokenEndpoint *schema.Url
@@ -437,11 +444,12 @@ func (e *Endpoint[T]) Initialize(
 		}
 
 		organizationIdentifier := providerClaims.OrganizationIdentifier()
+		emailAddressHash := e.EmailAddressHasher.HashEmailAddress(emailAddress)
 
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
 			httpContext.User = &schema.User{
 				Id:     providerClaims.Subject(),
-				Email:  emailAddress,
+				Hash:   emailAddressHash,
 				Domain: organizationIdentifier,
 			}
 		}
@@ -453,13 +461,15 @@ func (e *Endpoint[T]) Initialize(
 		strongAuthentication := authenticationContext.HasAnyMethodReference(e.StrongAuthenticationMethodReferences)
 
 		// Named on the message itself as well as on the HTTP context: the context is read by the
-		// logger when the request completes, which does not help a line written mid-handler.
+		// logger when the request completes, which does not help a line written mid-handler. The
+		// address is named by its hash alone, and not at all without a hasher.
+		userAttributes := []any{slog.String("id", providerClaims.Subject())}
+		if emailAddressHash != "" {
+			userAttributes = append(userAttributes, slog.String("hash", emailAddressHash))
+		}
+
 		logAttributes := []any{
-			slog.Group(
-				"user",
-				slog.String("id", providerClaims.Subject()),
-				slog.String("email", emailAddress),
-			),
+			slog.Group("user", userAttributes...),
 			slog.Bool("strong_authentication", strongAuthentication),
 			slog.Bool("strong_authentication_required", e.RequireStrongAuthentication),
 			slog.Bool("organization_required", e.RequireOrganization),
@@ -597,4 +607,10 @@ func (e *Endpoint[T]) MaskedBodyUrls() ([]*schema.Url, error) {
 		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("not initialized: %w", nil_error.New("token endpoint")))
 	}
 	return []*schema.Url{e.tokenEndpoint}, nil
+}
+
+// MaskedHeaders is empty: nothing in this endpoint's request headers needs more than the log's own
+// masking.
+func (e *Endpoint[T]) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
+	return nil
 }

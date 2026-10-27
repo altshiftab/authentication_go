@@ -160,7 +160,9 @@ func (m *Manager) CreateSession(ctx context.Context, authMethod string, emailAdd
 	selectAccountCtx, selectAccountCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 	defer selectAccountCtxCancel()
 	account, err := m.selectEmailAddressAccount(selectAccountCtx, emailAddress, m.Db)
-	wrappedErr := altshiftErrors.New(fmt.Errorf("select email address account: %w", err), emailAddress)
+	// The address is no part of the error: one with no account is someone else's, or a typo of it,
+	// and the sign-in endpoint has named it on the request by its hash.
+	wrappedErr := altshiftErrors.New(fmt.Errorf("select email address account: %w", err))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &response_error.ResponseError{

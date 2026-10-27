@@ -9,13 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/generate_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/landing_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/validate_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/callback_endpoint"
+	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/id_token_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
 	altshiftHttpContext "github.com/altshiftab/utils_go/pkg/http/context"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/schema"
 )
 
@@ -24,15 +27,21 @@ var (
 	_ Masker = (*callback_endpoint.Endpoint[*provider_claims.GoogleClaims])(nil)
 	_ Masker = (*validate_endpoint.Endpoint)(nil)
 	_ Masker = (*landing_endpoint.Endpoint)(nil)
+	_ Masker = (*generate_endpoint.Endpoint)(nil)
+	_ Masker = (*id_token_endpoint.Endpoint[*provider_claims.GoogleClaims])(nil)
 )
 
 type fakeMasker struct {
 	urlParams   []*schema.Url
 	bodyUrls    []*schema.Url
 	bodyUrlsErr error
+	headers     []*http_context_extractor_config.MaskedHeader
 }
 
 func (m *fakeMasker) MaskedUrlParams() []*schema.Url { return m.urlParams }
+func (m *fakeMasker) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
+	return m.headers
+}
 func (m *fakeMasker) MaskedBodyUrls() ([]*schema.Url, error) {
 	return m.bodyUrls, m.bodyUrlsErr
 }
@@ -45,6 +54,10 @@ func TestApply(t *testing.T) {
 	own := &schema.Url{Path: "/api/own", Query: "secret"}
 	callback := &schema.Url{Path: "/api/login/test/callback", Query: "code&state"}
 	tokenEndpoint := &schema.Url{Domain: "token.example.test", Path: "/token"}
+	authorization := &http_context_extractor_config.MaskedHeader{
+		Url:     &schema.Url{Path: "/api/login/test/id-token"},
+		Headers: []string{"Authorization"},
+	}
 
 	testCases := []struct {
 		name      string
@@ -55,7 +68,11 @@ func TestApply(t *testing.T) {
 		{
 			name:      "alongside what a service set itself",
 			extractor: &http_context_extractor.Extractor{MaskedUrlParams: []*schema.Url{own}},
-			maskers:   []Masker{&fakeMasker{urlParams: []*schema.Url{callback}, bodyUrls: []*schema.Url{tokenEndpoint}}},
+			maskers: []Masker{&fakeMasker{
+				urlParams: []*schema.Url{callback},
+				bodyUrls:  []*schema.Url{tokenEndpoint},
+				headers:   []*http_context_extractor_config.MaskedHeader{authorization},
+			}},
 		},
 		{name: "no extractor", maskers: []Masker{&fakeMasker{}}, wantErr: true},
 		{name: "no masker", extractor: &http_context_extractor.Extractor{}, maskers: []Masker{nil}, wantErr: true},
@@ -90,6 +107,9 @@ func TestApply(t *testing.T) {
 			if len(extractor.MaskedUrlParams) != 2 || extractor.MaskedUrlParams[0] != own || extractor.MaskedUrlParams[1] != callback {
 				t.Errorf("%s: masked url params %+v", testCase.name, extractor.MaskedUrlParams)
 			}
+			if len(extractor.MaskedHeaders) != 1 || extractor.MaskedHeaders[0] != authorization {
+				t.Errorf("%s: masked headers %+v", testCase.name, extractor.MaskedHeaders)
+			}
 			for name, bodyUrls := range map[string][]*schema.Url{
 				"request":  extractor.MaskedRequestBodyUrls,
 				"response": extractor.MaskedResponseBodyUrls,
@@ -109,9 +129,15 @@ func TestMagicLinkEndpoints_Masks(t *testing.T) {
 		name   string
 		masker Masker
 		path   string
+		// wantQuery is the parameters masked in the URL, and none where it is empty.
+		wantQuery string
+		// wantBody is whether the endpoint's own bodies are masked.
+		wantBody bool
 	}{
-		{name: "validate", masker: validate_endpoint.New(), path: validate_endpoint.New().Path},
-		{name: "landing", masker: landing_endpoint.New(), path: landing_endpoint.New().Path},
+		{name: "validate", masker: validate_endpoint.New(), path: validate_endpoint.New().Path, wantQuery: "token"},
+		{name: "landing", masker: landing_endpoint.New(), path: landing_endpoint.New().Path, wantQuery: "token"},
+		// The address is asked for in the body, which is masked whole.
+		{name: "generate", masker: generate_endpoint.New(), path: generate_endpoint.New().Path, wantBody: true},
 	}
 
 	for _, testCase := range testCases {
@@ -119,17 +145,49 @@ func TestMagicLinkEndpoints_Masks(t *testing.T) {
 			t.Parallel()
 
 			urlParams := testCase.masker.MaskedUrlParams()
-			if len(urlParams) != 1 || urlParams[0].Path != testCase.path || urlParams[0].Query != "token" {
+			if testCase.wantQuery == "" {
+				if len(urlParams) != 0 {
+					t.Errorf("%s: masked url params %+v, want none", testCase.name, urlParams)
+				}
+			} else if len(urlParams) != 1 || urlParams[0].Path != testCase.path || urlParams[0].Query != testCase.wantQuery {
 				t.Errorf("%s: masked url params %+v", testCase.name, urlParams)
 			}
+
 			bodyUrls, err := testCase.masker.MaskedBodyUrls()
 			if err != nil {
 				t.Fatalf("%s: masked body urls: %v", testCase.name, err)
 			}
-			if len(bodyUrls) != 0 {
-				t.Errorf("%s: masked body urls %+v, want none", testCase.name, bodyUrls)
+			if !testCase.wantBody {
+				if len(bodyUrls) != 0 {
+					t.Errorf("%s: masked body urls %+v, want none", testCase.name, bodyUrls)
+				}
+			} else if len(bodyUrls) != 1 || bodyUrls[0].Path != testCase.path || bodyUrls[0].Domain != "" {
+				t.Errorf("%s: masked body urls %+v, want the endpoint's own path", testCase.name, bodyUrls)
 			}
 		})
+	}
+}
+
+// The ID-token endpoint's token is in its Authorization header, whose claims name the person: the
+// header is masked whole on the endpoint's path, and nothing else is.
+func TestIdTokenEndpoint_Masks(t *testing.T) {
+	t.Parallel()
+
+	endpoint, err := id_token_endpoint.New[*provider_claims.GoogleClaims]("/api/login/test/id-token")
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	headers := endpoint.MaskedHeaders()
+	if len(headers) != 1 || headers[0].Url == nil || headers[0].Url.Path != endpoint.Path ||
+		len(headers[0].Headers) != 1 || headers[0].Headers[0] != "Authorization" {
+		t.Errorf("masked headers %+v, want Authorization on %s", headers, endpoint.Path)
+	}
+	if urlParams := endpoint.MaskedUrlParams(); len(urlParams) != 0 {
+		t.Errorf("masked url params %+v, want none", urlParams)
+	}
+	if bodyUrls, err := endpoint.MaskedBodyUrls(); err != nil || len(bodyUrls) != 0 {
+		t.Errorf("masked body urls %+v, %v, want none", bodyUrls, err)
 	}
 }
 

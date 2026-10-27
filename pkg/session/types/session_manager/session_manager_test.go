@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
+	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 )
 
 const (
@@ -420,6 +422,20 @@ func TestManager_CreateSession(t *testing.T) {
 				}
 			} else if respErr.ServerError == nil {
 				t.Errorf("expected server error, got %+v", respErr)
+			}
+
+			// No refusal carries the address, as the log writes it: one with no account is
+			// someone else's, or a typo of it.
+			if tt.emailAddress != "" {
+				for _, err := range []error{respErr.ClientError, respErr.ServerError} {
+					if err == nil {
+						continue
+					}
+					written := fmt.Sprint((&altshiftLog.ErrorContextExtractor{}).MakeErrorAttrs(err))
+					if strings.Contains(written, tt.emailAddress) {
+						t.Errorf("%s: the address is in the error: %s", tt.name, written)
+					}
+				}
 			}
 		})
 	}

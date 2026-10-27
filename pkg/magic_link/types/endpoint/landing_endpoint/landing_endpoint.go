@@ -23,6 +23,7 @@ import (
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/http/types/accept_language"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	jwtErrors "github.com/altshiftab/utils_go/pkg/json/jose/jwt/errors"
 	authenticatorPkg "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/authenticator/authenticator_config"
@@ -208,4 +209,10 @@ func (e *Endpoint) MaskedUrlParams() []*schema.Url {
 // MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
 func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
 	return nil, nil
+}
+
+// MaskedHeaders is empty: nothing in this endpoint's request headers needs more than the log's own
+// masking.
+func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
+	return nil
 }

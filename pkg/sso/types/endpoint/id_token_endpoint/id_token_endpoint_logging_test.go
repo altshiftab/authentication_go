@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
+	logMaskingTesting "github.com/altshiftab/authentication_go/pkg/log_masking/testing"
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
 	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
@@ -24,6 +26,7 @@ import (
 	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
 	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 )
 
 // TestSignInLogging covers the sign-in this endpoint records. Without it the account behind a
@@ -43,6 +46,12 @@ import (
 //
 //nolint:paralleltest // Swaps the global slog default; running it in parallel would race.
 func TestSignInLogging(t *testing.T) {
+	hasher, err := pii_hasher.New(bytes.Repeat([]byte{7}, pii_hasher.MinimumKeyLength))
+	if err != nil {
+		t.Fatalf("pii hasher new: %v", err)
+	}
+	wantHash := hasher.HashEmailAddress(ssoTesting.EmailAddress)
+
 	testCases := []struct {
 		name                     string
 		methodReferences         []string
@@ -86,7 +95,7 @@ func TestSignInLogging(t *testing.T) {
 			var logBuffer bytes.Buffer
 			httpContextExtractor := http_context_extractor.New()
 			logger := altshiftContextLogger.New(
-				slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+				slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}),
 				&altshiftLog.ErrorContextExtractor{
 					ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
 				},
@@ -100,12 +109,17 @@ func TestSignInLogging(t *testing.T) {
 			if err != nil {
 				t.Fatalf("new endpoint: %v", err)
 			}
+			testEndpoint.EmailAddressHasher = hasher
 			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 				t.Fatalf("test endpoint initialize: %v", err)
 			}
 
-			mux := &muxPkg.Mux{}
-			mux.Add(testEndpoint.Endpoint.Endpoint)
+			// Masked as a service masks it, and through New, for the request log the mux writes
+			// once a response is served: that is where a request's headers and body are written.
+			if err := log_masking.Apply(httpContextExtractor, testEndpoint); err != nil {
+				t.Fatalf("log masking apply: %v", err)
+			}
+			mux := muxPkg.New(testEndpoint.Endpoint.Endpoint)
 			httpServer := httptest.NewServer(mux)
 			defer httpServer.Close()
 
@@ -149,14 +163,19 @@ func TestSignInLogging(t *testing.T) {
 				httpServer.URL,
 			)
 
+			// The address is named by its keyed hash, and is not written out.
+			if found := logMaskingTesting.FindAddress(logBuffer.String(), ssoTesting.EmailAddress); len(found) != 0 {
+				t.Errorf("%s: the address is in the log %q: %s", testCase.name, found, logBuffer.String())
+			}
+
 			entry := findSignInLogEntry(t, &logBuffer)
 
 			user, _ := entry["user"].(map[string]any)
 			if user == nil {
 				t.Fatalf("%s: no user in log entry: %v", testCase.name, entry)
 			}
-			if emailAddress, _ := user["email"].(string); emailAddress != ssoTesting.EmailAddress {
-				t.Errorf("%s: user.email = %v, want %s", testCase.name, user["email"], ssoTesting.EmailAddress)
+			if hash, _ := user["hash"].(string); hash != wantHash {
+				t.Errorf("%s: user.hash = %v, want %s", testCase.name, user["hash"], wantHash)
 			}
 			if id, _ := user["id"].(string); id != ssoTesting.Subject {
 				t.Errorf("%s: user.id = %v, want %s", testCase.name, user["id"], ssoTesting.Subject)
@@ -319,7 +338,7 @@ func TestRefusalLogging(t *testing.T) {
 			var logBuffer bytes.Buffer
 			httpContextExtractor := http_context_extractor.New()
 			logger := altshiftContextLogger.New(
-				slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+				slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}),
 				&altshiftLog.ErrorContextExtractor{
 					ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
 				},
@@ -337,8 +356,12 @@ func TestRefusalLogging(t *testing.T) {
 				t.Fatalf("%s: initialize: %v", testCase.name, err)
 			}
 
-			mux := &muxPkg.Mux{}
-			mux.Add(testEndpoint.Endpoint.Endpoint)
+			// Masked as a service masks it, and through New, for the request log the mux writes
+			// once a response is served: that is where a request's headers and body are written.
+			if err := log_masking.Apply(httpContextExtractor, testEndpoint); err != nil {
+				t.Fatalf("log masking apply: %v", err)
+			}
+			mux := muxPkg.New(testEndpoint.Endpoint.Endpoint)
 			httpServer := httptest.NewServer(mux)
 			defer httpServer.Close()
 
@@ -361,6 +384,12 @@ func TestRefusalLogging(t *testing.T) {
 			topLevel := fmt.Sprint(errorObject["message"], errorObject["input"])
 			if strings.Contains(topLevel, testCase.token) {
 				t.Errorf("%s: the endpoint's error carries the token", testCase.name)
+			}
+
+			// Nor does the refused token's address reach the log by any other way: the request's
+			// headers, which the refusal is written with, carry the token whole.
+			if found := logMaskingTesting.FindAddress(logBuffer.String(), ssoTesting.EmailAddress); len(found) != 0 {
+				t.Errorf("%s: the address is in the log %q: %s", testCase.name, found, logBuffer.String())
 			}
 		})
 	}

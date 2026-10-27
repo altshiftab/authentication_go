@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
+	logMaskingTesting "github.com/altshiftab/authentication_go/pkg/log_masking/testing"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	"log/slog"
 	"net/http"
@@ -22,6 +24,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor"
 	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 	altshiftContextLogger "github.com/altshiftab/utils_go/pkg/log/context_logger"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 )
 
 // TestProviderErrorLogging drives the OAuth provider-error path (the user
@@ -199,11 +202,39 @@ func keysOf(m map[string]any) []string {
 // TestSignInLoggingIdentifiesUser covers the sign-in log naming the account it concerns. Without it
 // the authentication methods can be counted but not attributed, and one user signing in repeatedly
 // is indistinguishable from many users signing in once.
+//
+//nolint:paralleltest // Swaps the global slog default; running it in parallel would race.
 func TestSignInLoggingIdentifiesUser(t *testing.T) {
+	hasher, err := pii_hasher.New(bytes.Repeat([]byte{7}, pii_hasher.MinimumKeyLength))
+	if err != nil {
+		t.Fatalf("pii hasher new: %v", err)
+	}
+
+	// The address is named by its keyed hash, and not at all without a hasher; in neither case is it
+	// written out.
+	testCases := []struct {
+		name     string
+		hasher   *pii_hasher.Hasher
+		wantHash string
+	}{
+		{name: "with a hasher", hasher: hasher, wantHash: hasher.HashEmailAddress(testing2.EmailAddress)},
+		{name: "without a hasher"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSignInLoggingIdentifiesUser(t, testCase.name, testCase.hasher, testCase.wantHash)
+		})
+	}
+}
+
+func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hasher.Hasher, wantHash string) {
+	t.Helper()
+
 	var logBuffer bytes.Buffer
 	httpContextExtractor := http_context_extractor.New()
 	logger := altshiftContextLogger.New(
-		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelDebug}),
 		&altshiftLog.ErrorContextExtractor{
 			ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
 		},
@@ -217,6 +248,7 @@ func TestSignInLoggingIdentifiesUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new endpoint: %v", err)
 	}
+	testEndpoint.EmailAddressHasher = hasher
 	if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
 		t.Fatalf("test endpoint initialize: %v", err)
 	}
@@ -230,8 +262,12 @@ func TestSignInLoggingIdentifiesUser(t *testing.T) {
 		}, nil
 	}
 
-	mux := &muxPkg.Mux{}
-	mux.Add(testEndpoint.Endpoint.Endpoint)
+	// Masked as a service masks it, and through New, for the request log the mux writes
+	// once a response is served: that is where a request's headers and body are written.
+	if err := log_masking.Apply(httpContextExtractor, testEndpoint); err != nil {
+		t.Fatalf("log masking apply: %v", err)
+	}
+	mux := muxPkg.New(testEndpoint.Endpoint.Endpoint)
 	httpServer := httptest.NewServer(mux)
 	defer httpServer.Close()
 
@@ -247,14 +283,18 @@ func TestSignInLoggingIdentifiesUser(t *testing.T) {
 		httpServer.URL,
 	)
 
+	if found := logMaskingTesting.FindAddress(logBuffer.String(), testing2.EmailAddress); len(found) != 0 {
+		t.Errorf("%s: the address is in the log %q: %s", name, found, logBuffer.String())
+	}
+
 	entry := findLogEntry(t, &logBuffer, "An identity provider authenticated a user.")
 
 	user, _ := entry["user"].(map[string]any)
 	if user == nil {
 		t.Fatalf("no user in log entry: %v", entry)
 	}
-	if emailAddress, _ := user["email"].(string); emailAddress != testing2.EmailAddress {
-		t.Errorf("user email: got %v, expected %s", user["email"], testing2.EmailAddress)
+	if hash, _ := user["hash"].(string); hash != wantHash {
+		t.Errorf("%s: user hash: got %v, expected %q", name, user["hash"], wantHash)
 	}
 	if id, _ := user["id"].(string); id != testing2.Subject {
 		t.Errorf("user id: got %v, expected %s", user["id"], testing2.Subject)

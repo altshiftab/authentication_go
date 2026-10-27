@@ -28,6 +28,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	jwtErrors "github.com/altshiftab/utils_go/pkg/json/jose/jwt/errors"
@@ -36,6 +37,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 	"github.com/altshiftab/utils_go/pkg/schema"
 	"github.com/altshiftab/utils_go/pkg/utils"
@@ -174,6 +176,10 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 
 type Endpoint struct {
 	*initialization_endpoint.Endpoint
+
+	// EmailAddressHasher names the address signing in by its keyed hash, on the request and on the
+	// sign-in's log line. With none, the log names no address at all.
+	EmailAddressHasher *pii_hasher.Hasher
 }
 
 func (e *Endpoint) Initialize(
@@ -229,6 +235,7 @@ func (e *Endpoint) Initialize(
 		nonceHash := verifiedToken.NonceHash
 
 		emailAddress := verifiedToken.EmailAddress
+		emailAddressHash := e.EmailAddressHasher.HashEmailAddress(emailAddress)
 
 		// Resolved before the session is created, so that a refusal from the session manager -- an
 		// address with no account, a locked account -- is attributed to the same user as a success.
@@ -236,7 +243,7 @@ func (e *Endpoint) Initialize(
 		// too: this is the request that authenticates the user, and without it the account is not
 		// named until the redirect that follows, on the strength of the cookie this one set.
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
-			httpContext.User = &schema.User{Email: emailAddress}
+			httpContext.User = &schema.User{Hash: emailAddressHash}
 		}
 
 		response, responseError := sessionManager.CreateSession(ctx, authentication_method.MagicLink, emailAddress, nonceHash[:])
@@ -254,14 +261,14 @@ func (e *Endpoint) Initialize(
 		// A message of its own rather than the identity provider's: no provider authenticated
 		// anyone here, and the two say different things about what was proved. A magic link proves
 		// possession of a mailbox, with no second factor, no organization and no authentication
-		// context to state -- so the line carries the address the link was issued to and claims
-		// nothing further. The user carries no id: the account exists, but the provider subject
-		// that names one on an SSO sign-in has no counterpart here.
-		slog.InfoContext(
-			ctx,
-			"A magic link authenticated a user.",
-			slog.Group("user", slog.String("email", emailAddress)),
-		)
+		// context to state -- so the line carries the address the link was issued to, by its hash,
+		// and claims nothing further. The user carries no id: the account exists, but the provider
+		// subject that names one on an SSO sign-in has no counterpart here.
+		var logAttributes []any
+		if emailAddressHash != "" {
+			logAttributes = append(logAttributes, slog.Group("user", slog.String("hash", emailAddressHash)))
+		}
+		slog.InfoContext(ctx, "A magic link authenticated a user.", logAttributes...)
 
 		location := redirectUrlString
 		if verifiedToken.RedirectUrl != "" {
@@ -307,4 +314,10 @@ func (e *Endpoint) MaskedUrlParams() []*schema.Url {
 // MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
 func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
 	return nil, nil
+}
+
+// MaskedHeaders is empty: nothing in this endpoint's request headers needs more than the log's own
+// masking.
+func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
+	return nil
 }

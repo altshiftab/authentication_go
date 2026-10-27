@@ -17,6 +17,7 @@ import (
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_loader/body_setting"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/body_parser"
@@ -32,17 +33,20 @@ import (
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/http/types/accept_language"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
 	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	altshiftMail "github.com/altshiftab/utils_go/pkg/mail"
 	"github.com/altshiftab/utils_go/pkg/mail/types/message"
 	"github.com/altshiftab/utils_go/pkg/mail/types/message/message_config"
 	altshiftNet "github.com/altshiftab/utils_go/pkg/net"
 	"github.com/altshiftab/utils_go/pkg/net/types/domain_parts"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
+	"github.com/altshiftab/utils_go/pkg/schema"
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
@@ -77,7 +81,9 @@ func makeBodyProcessor(domain string) processorPkg.Processor[*ParsedBodyInput, *
 		if err := altshiftMail.ValidateAddress(emailAddressString); err != nil {
 			if stdErrors.Is(err, altshiftErrors.ErrValidationError) {
 				return nil, &response_error.ResponseError{
-					ClientError: altshiftErrors.New(fmt.Errorf("validate address: %w", err), emailAddressString),
+					// Not the cause: net/mail's message quotes what was typed, and the
+					// validation names it whole. As likely as not it is no address at all.
+					ClientError: altshiftErrors.NewWithTrace(fmt.Errorf("validate address: %w", altshiftErrors.ErrValidationError)),
 					ProblemDetail: problem_detail.New(
 						http.StatusUnprocessableEntity,
 						problem_detail_config.WithDetail("The email address is invalid."),
@@ -85,14 +91,14 @@ func makeBodyProcessor(domain string) processorPkg.Processor[*ParsedBodyInput, *
 				}
 			}
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.New(fmt.Errorf("validate address: %w", err), emailAddressString),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("validate address (%T): %w", err, errUnreadableAddress)),
 			}
 		}
 
 		emailAddress, err := mail.ParseAddress(emailAddressString)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.New(fmt.Errorf("mail parse address: %w", err), emailAddressString),
+				ServerError: altshiftErrors.NewWithTrace(fmt.Errorf("mail parse address (%T): %w", err, errUnreadableAddress)),
 			}
 		}
 
@@ -130,6 +136,10 @@ func makeBodyProcessor(domain string) processorPkg.Processor[*ParsedBodyInput, *
 	})
 }
 
+// errUnreadableAddress stands in for an address error's own, whose message quotes what was typed:
+// only its type is kept, beside this.
+var errUnreadableAddress = stdErrors.New("the address could not be read")
+
 type Endpoint struct {
 	*initialization_endpoint.Endpoint
 	LinkExpiration     time.Duration
@@ -138,7 +148,12 @@ type Endpoint struct {
 	MessageBuilder     generate_endpoint_config.MessageBuilder
 	AccountChecker     generate_endpoint_config.AccountChecker
 	MinResponseLatency time.Duration
-	makeNonce          func() string
+
+	// EmailAddressHasher names the address a link is asked for by its keyed hash, on the request.
+	// With none, the log names no address at all.
+	EmailAddressHasher *pii_hasher.Hasher
+
+	makeNonce func() string
 }
 
 func (e *Endpoint) Initialize(
@@ -213,10 +228,19 @@ func (e *Endpoint) Initialize(
 
 		toAddress := body.EmailAddress
 
+		// By its hash, for an address with an account and one without alike: how many links are
+		// asked for, for which addresses and from where, is what shows the endpoint being abused,
+		// and an address with no account is still one someone may ask about.
+		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
+			if emailAddressHash := e.EmailAddressHasher.HashEmailAddress(toAddress.Address); emailAddressHash != "" {
+				httpContext.User = &schema.User{Hash: emailAddressHash}
+			}
+		}
+
 		accountExists, err := e.AccountChecker(ctx, toAddress.Address)
 		if err != nil {
 			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.New(fmt.Errorf("account checker: %w", err), toAddress.Address),
+				ServerError: altshiftErrors.New(fmt.Errorf("account checker: %w", err)),
 			}
 		}
 		if !accountExists {
@@ -343,4 +367,22 @@ func New(options ...generate_endpoint_config.Option) *Endpoint {
 		MinResponseLatency: config.MinResponseLatency,
 		makeNonce:          config.MakeNonce,
 	}
+}
+
+// MaskedUrlParams is empty: the address is asked for in the body, not the URL.
+func (e *Endpoint) MaskedUrlParams() []*schema.Url {
+	return nil
+}
+
+// MaskedBodyUrls is this endpoint's own path: its request's body is the address typed into the
+// form, which the log writes with every request, whether the address has an account or not, and
+// whether it is an address at all -- something else typed into the field is as likely.
+func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
+	return []*schema.Url{{Path: e.Path}}, nil
+}
+
+// MaskedHeaders is empty: nothing in this endpoint's request headers needs more than the log's own
+// masking.
+func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
+	return nil
 }

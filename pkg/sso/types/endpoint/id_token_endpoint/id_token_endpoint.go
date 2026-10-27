@@ -32,6 +32,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	"github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	"github.com/altshiftab/utils_go/pkg/interfaces/comparer"
@@ -40,6 +41,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
+	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	"github.com/altshiftab/utils_go/pkg/schema"
 )
 
@@ -48,6 +50,10 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 
 	// RequireOrganization refuses an account belonging to no organization; see the config.
 	RequireOrganization bool
+
+	// EmailAddressHasher names the address signing in by its keyed hash, on the request and on the
+	// sign-in's log line. With none, the log names no address at all.
+	EmailAddressHasher *pii_hasher.Hasher
 }
 
 var idTokenHeaderExtractor = token_header_extractor.New(
@@ -197,6 +203,7 @@ func (e *Endpoint[T]) Initialize(
 		}
 
 		organizationIdentifier := providerClaims.OrganizationIdentifier()
+		emailAddressHash := e.EmailAddressHasher.HashEmailAddress(emailAddress)
 
 		// Resolved before the session is created, so that a refusal from the session manager — an
 		// address with no account, a locked account — is attributed to the same user as a success.
@@ -205,19 +212,21 @@ func (e *Endpoint[T]) Initialize(
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
 			httpContext.User = &schema.User{
 				Id:     providerClaims.Subject(),
-				Email:  emailAddress,
+				Hash:   emailAddressHash,
 				Domain: organizationIdentifier,
 			}
 		}
 
 		// The same message as the authorization code flow's, so that one query answers who signed
-		// in regardless of which route they took.
+		// in regardless of which route they took. The address is named by its hash alone, and not
+		// at all without a hasher.
+		userAttributes := []any{slog.String("id", providerClaims.Subject())}
+		if emailAddressHash != "" {
+			userAttributes = append(userAttributes, slog.String("hash", emailAddressHash))
+		}
+
 		logAttributes := []any{
-			slog.Group(
-				"user",
-				slog.String("id", providerClaims.Subject()),
-				slog.String("email", emailAddress),
-			),
+			slog.Group("user", userAttributes...),
 			slog.Group("organization", slog.String("id", organizationIdentifier)),
 		}
 
@@ -297,4 +306,24 @@ func New[T provider_claims.ProviderClaims](path string, options ...id_token_endp
 		},
 		RequireOrganization: config.RequireOrganization,
 	}, nil
+}
+
+// MaskedUrlParams is empty: the token is sent in a header, not the URL.
+func (e *Endpoint[T]) MaskedUrlParams() []*schema.Url {
+	return nil
+}
+
+// MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
+func (e *Endpoint[T]) MaskedBodyUrls() ([]*schema.Url, error) {
+	return nil, nil
+}
+
+// MaskedHeaders is the Authorization header on this endpoint's path, whole. It carries the
+// provider's ID token, whose claims name the person -- the email address among them -- and the log's
+// own masking of the header, made for session tokens, would leave all of them but the subject
+// readable.
+func (e *Endpoint[T]) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
+	return []*http_context_extractor_config.MaskedHeader{
+		{Url: &schema.Url{Path: e.Path}, Headers: []string{"Authorization"}},
+	}
 }
