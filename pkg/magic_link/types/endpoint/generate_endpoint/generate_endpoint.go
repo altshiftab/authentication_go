@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/generate_endpoint/generate_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/mail_sender"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
@@ -374,11 +375,17 @@ func (e *Endpoint) MaskedUrlParams() []*schema.Url {
 	return nil
 }
 
-// MaskedBodyUrls is this endpoint's own path: its request's body is the address typed into the
-// form, which the log writes with every request, whether the address has an account or not, and
-// whether it is an address at all -- something else typed into the field is as likely.
-func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
-	return []*schema.Url{{Path: e.Path}}, nil
+// MaskedBodyFields is every value of this endpoint's request's body, its shape kept: the body is
+// the address typed into the form, which the log writes with every request, whether the address
+// has an account or not, and whether it is an address at all -- something else typed into the field
+// is as likely. Every value rather than the address's field, because the client chooses the body:
+// the address sent under another member, or in a list, is masked all the same.
+func (e *Endpoint) MaskedBodyFields() (*log_masking.BodyFields, error) {
+	return &log_masking.BodyFields{
+		Request: []*http_context_extractor_config.MaskedBodyFields{
+			{Url: &schema.Url{Path: e.Path}, AllValues: true},
+		},
+	}, nil
 }
 
 // MaskedHeaders is empty: nothing in this endpoint's request headers needs more than the log's own

@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	"github.com/altshiftab/utils_go/pkg/schema"
@@ -599,14 +600,22 @@ func (e *Endpoint[T]) MaskedUrlParams() []*schema.Url {
 	return []*schema.Url{{Path: e.Path, Query: "code&state&session_state"}}
 }
 
-// MaskedBodyUrls is the provider's token endpoint: its request carries the client secret and the
-// code, and its response the tokens issued, and a failed exchange is logged with both. It is known
-// once the endpoint is initialized, and asking before is an error.
-func (e *Endpoint[T]) MaskedBodyUrls() ([]*schema.Url, error) {
+// MaskedBodyFields are the credentials of the exchange with the provider's token endpoint: its
+// request's client secret, code and verifier, and its response's tokens, a failed exchange being
+// logged with both. The rest is kept -- the grant asked for, and the error a refusal says it with.
+// The endpoint is known once the endpoint is initialized, and asking before is an error.
+func (e *Endpoint[T]) MaskedBodyFields() (*log_masking.BodyFields, error) {
 	if e.tokenEndpoint == nil {
 		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("not initialized: %w", nil_error.New("token endpoint")))
 	}
-	return []*schema.Url{e.tokenEndpoint}, nil
+	return &log_masking.BodyFields{
+		Request: []*http_context_extractor_config.MaskedBodyFields{
+			{Url: e.tokenEndpoint, Fields: altshiftOauth2.TokenRequestCredentialFields()},
+		},
+		Response: []*http_context_extractor_config.MaskedBodyFields{
+			{Url: e.tokenEndpoint, Fields: altshiftOauth2.TokenResponseCredentialFields()},
+		},
+	}, nil
 }
 
 // MaskedHeaders is empty: nothing in this endpoint's request headers needs more than the log's own

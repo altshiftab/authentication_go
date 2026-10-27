@@ -18,6 +18,12 @@ import (
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
+// BodyFields are what of a request's body and of a response's the log masks, by URL.
+type BodyFields struct {
+	Request  []*http_context_extractor_config.MaskedBodyFields
+	Response []*http_context_extractor_config.MaskedBodyFields
+}
+
 // Masker is implemented by an endpoint whose requests carry a credential in their URL, or which
 // exchanges one with another service, and says where.
 type Masker interface {
@@ -25,11 +31,11 @@ type Masker interface {
 	// parameters named in Query.
 	MaskedUrlParams() []*schema.Url
 
-	// MaskedBodyUrls are the URLs the endpoint calls whose request and response bodies carry
-	// credentials, both of which are masked. It is an error for an endpoint to be asked before it
-	// knows them, rather than an empty list, so that a service that applies the masks too early
+	// MaskedBodyFields are what of the bodies the endpoint exchanges -- its requests', or those of
+	// the calls it makes -- the log masks, field by field. It is an error for an endpoint to be asked
+	// before it knows them, rather than none, so that a service that applies the masks too early
 	// fails at startup instead of logging the exchange unmasked.
-	MaskedBodyUrls() ([]*schema.Url, error)
+	MaskedBodyFields() (*BodyFields, error)
 
 	// MaskedHeaders are the headers of the endpoint's requests that the log masks whole: those
 	// carrying a token of which the log's own masking of a header -- the signature, and a session
@@ -50,15 +56,17 @@ func Apply(extractor *http_context_extractor.Extractor, maskers ...Masker) error
 			return altshiftErrors.NewWithTrace(fmt.Errorf("masker %d: %w", i, nil_error.New("masker")))
 		}
 
-		bodyUrls, err := masker.MaskedBodyUrls()
+		bodyFields, err := masker.MaskedBodyFields()
 		if err != nil {
-			return altshiftErrors.New(fmt.Errorf("masker %d: masked body urls: %w", i, err))
+			return altshiftErrors.New(fmt.Errorf("masker %d: masked body fields: %w", i, err))
 		}
 
 		extractor.MaskedUrlParams = append(extractor.MaskedUrlParams, masker.MaskedUrlParams()...)
 		extractor.MaskedHeaders = append(extractor.MaskedHeaders, masker.MaskedHeaders()...)
-		extractor.MaskedRequestBodyUrls = append(extractor.MaskedRequestBodyUrls, bodyUrls...)
-		extractor.MaskedResponseBodyUrls = append(extractor.MaskedResponseBodyUrls, bodyUrls...)
+		if bodyFields != nil {
+			extractor.MaskedRequestBodyFields = append(extractor.MaskedRequestBodyFields, bodyFields.Request...)
+			extractor.MaskedResponseBodyFields = append(extractor.MaskedResponseBodyFields, bodyFields.Response...)
+		}
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/validate_endpoint/validate_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
@@ -311,8 +312,9 @@ func (e *Endpoint) MaskedUrlParams() []*schema.Url {
 	return []*schema.Url{{Path: e.Path, Query: "token"}}
 }
 
-// MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
-func (e *Endpoint) MaskedBodyUrls() ([]*schema.Url, error) {
+// MaskedBodyFields is nothing: the endpoint's requests carry no body, and it exchanges nothing with
+// another service.
+func (e *Endpoint) MaskedBodyFields() (*log_masking.BodyFields, error) {
 	return nil, nil
 }
 

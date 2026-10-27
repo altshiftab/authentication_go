@@ -2,9 +2,11 @@ package callback_endpoint
 
 import (
 	"net/url"
+	"slices"
 	"testing"
 
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 )
 
 func TestEndpoint_Masks(t *testing.T) {
@@ -78,18 +80,37 @@ func TestEndpoint_Masks(t *testing.T) {
 				t.Errorf("%s: masked url params %+v", testCase.name, urlParams)
 			}
 
-			bodyUrls, err := endpoint.MaskedBodyUrls()
+			bodyFields, err := endpoint.MaskedBodyFields()
 			if !testCase.initialize {
 				if err == nil {
-					t.Errorf("%s: masked body urls %+v, want an error", testCase.name, bodyUrls)
+					t.Errorf("%s: masked body fields %+v, want an error", testCase.name, bodyFields)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("%s: masked body urls: %v", testCase.name, err)
+				t.Fatalf("%s: masked body fields: %v", testCase.name, err)
 			}
-			if len(bodyUrls) != 1 || bodyUrls[0].Domain != testCase.wantDomain || bodyUrls[0].Path != testCase.wantPath {
-				t.Errorf("%s: masked body urls %+v, want %s%s", testCase.name, bodyUrls, testCase.wantDomain, testCase.wantPath)
+			if bodyFields == nil {
+				t.Fatalf("%s: no masked body fields", testCase.name)
+			}
+
+			// The token endpoint's request's and response's credentials, field by field.
+			for name, testFields := range map[string]struct {
+				entries  []*http_context_extractor_config.MaskedBodyFields
+				wantSome string
+			}{
+				"request":  {entries: bodyFields.Request, wantSome: "client_secret"},
+				"response": {entries: bodyFields.Response, wantSome: "id_token"},
+			} {
+				entries := testFields.entries
+				if len(entries) != 1 || entries[0].Url == nil ||
+					entries[0].Url.Domain != testCase.wantDomain || entries[0].Url.Path != testCase.wantPath {
+					t.Errorf("%s: masked %s body fields %+v, want %s%s", testCase.name, name, entries, testCase.wantDomain, testCase.wantPath)
+					continue
+				}
+				if entries[0].AllValues || !slices.Contains(entries[0].Fields, testFields.wantSome) {
+					t.Errorf("%s: masked %s body fields %v, want %s among them", testCase.name, name, entries[0].Fields, testFields.wantSome)
+				}
 			}
 		})
 	}

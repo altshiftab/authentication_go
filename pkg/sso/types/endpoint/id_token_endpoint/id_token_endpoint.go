@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoErrors "github.com/altshiftab/authentication_go/pkg/sso/errors"
@@ -313,8 +314,9 @@ func (e *Endpoint[T]) MaskedUrlParams() []*schema.Url {
 	return nil
 }
 
-// MaskedBodyUrls is empty: the endpoint exchanges nothing with another service.
-func (e *Endpoint[T]) MaskedBodyUrls() ([]*schema.Url, error) {
+// MaskedBodyFields is nothing: the token is in a header, and the endpoint exchanges nothing with
+// another service.
+func (e *Endpoint[T]) MaskedBodyFields() (*log_masking.BodyFields, error) {
 	return nil, nil
 }
 
