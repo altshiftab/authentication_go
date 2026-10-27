@@ -191,12 +191,14 @@ func TestParser_Parse_Dpop(t *testing.T) {
 		},
 		{
 			// An authorizer that never heard of DPoP refuses a bound token all the same, so no
-			// existing endpoint becomes a way around the binding.
-			name:       "a bound token as Bearer, through utils_go's header extractor",
-			extractor:  bearerHeaderExtractor,
-			request:    &dpopRequest{authorization: []string{"Bearer " + boundToken}},
-			wantStatus: http.StatusUnauthorized,
-			wantDetail: "The token is bound to a key and must be presented with the DPoP scheme.",
+			// existing endpoint becomes a way around the binding. The challenge is the extractor's
+			// own, in the one scheme it reads.
+			name:          "a bound token as Bearer, through utils_go's header extractor",
+			extractor:     bearerHeaderExtractor,
+			request:       &dpopRequest{authorization: []string{"Bearer " + boundToken}},
+			wantStatus:    http.StatusUnauthorized,
+			wantDetail:    "The token is bound to a key and must be presented with the DPoP scheme.",
+			wantChallenge: `Bearer error="invalid_token", error_description="The token is bound to a key and must be presented with the DPoP scheme."`,
 		},
 		{
 			name:       "a bound token in a cookie",
@@ -373,8 +375,8 @@ func TestParser_Parse_Dpop(t *testing.T) {
 			if testCase.wantChallenge != "" && challenge != testCase.wantChallenge {
 				t.Errorf("%s: challenge %q, want %q", testCase.name, challenge, testCase.wantChallenge)
 			}
-			// A cookie, and utils_go's header extractor at this version, have no challenge to give.
-			if testCase.extractor == cookieExtractor || testCase.extractor == bearerHeaderExtractor {
+			// A cookie has no challenge to give.
+			if testCase.extractor == cookieExtractor {
 				if challenge != "" {
 					t.Errorf("%s: challenge %q, want none", testCase.name, challenge)
 				}
