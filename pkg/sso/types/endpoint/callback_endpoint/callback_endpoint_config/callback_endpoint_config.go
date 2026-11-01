@@ -3,6 +3,8 @@ package callback_endpoint_config
 import (
 	"context"
 	"database/sql"
+	"time"
+
 	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
 
 	"github.com/altshiftab/authentication_go/pkg/database"
@@ -13,6 +15,7 @@ import (
 var (
 	DefaultCallbackCookieName          = "callback_id"
 	DefaultPopOauthFlow                = database.PopOauthFlow
+	DefaultPopExpiredOauthFlowByState  = database.PopExpiredOauthFlowByState
 	DefaultRequireStrongAuthentication = false
 	DefaultRequireOrganization         = false
 	// The methods accepted as satisfying a multi-factor requirement; see the provider claims.
@@ -28,6 +31,11 @@ func DefaultClassifyOauthError(err *oauth_error.Error) oauth_error.Category {
 type Config struct {
 	CallbackCookieName string
 	PopOauthFlow       func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)
+	// LoginPath is the path of the login endpoint whose flows the callback completes. With one, a
+	// browser that comes back after its flow expired is sent there to sign in again; without, it is
+	// refused.
+	LoginPath                  string
+	PopExpiredOauthFlowByState func(ctx context.Context, state string, now time.Time, database *sql.DB) (*oauth_flow.Flow, error)
 
 	// ClassifyOauthError maps an OAuth error to a category. Override it for
 	// provider-specific precision (e.g. a Google-only deployment). The problem
@@ -65,6 +73,7 @@ func New(options ...Option) *Config {
 		StrongAuthenticationMethodReferences: DefaultStrongAuthenticationMethodReferences,
 		RequireOrganization:                  DefaultRequireOrganization,
 		PopOauthFlow:                         DefaultPopOauthFlow,
+		PopExpiredOauthFlowByState:           DefaultPopExpiredOauthFlowByState,
 		ClassifyOauthError:                   DefaultClassifyOauthError,
 	}
 	for _, option := range options {
@@ -83,6 +92,20 @@ func WithCallbackCookieName(callbackCookieName string) Option {
 func WithPopOauthFlow(popOauthFlow func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)) Option {
 	return func(config *Config) {
 		config.PopOauthFlow = popOauthFlow
+	}
+}
+
+func WithLoginPath(loginPath string) Option {
+	return func(config *Config) {
+		config.LoginPath = loginPath
+	}
+}
+
+func WithPopExpiredOauthFlowByState(
+	popExpiredOauthFlowByState func(ctx context.Context, state string, now time.Time, database *sql.DB) (*oauth_flow.Flow, error),
+) Option {
+	return func(config *Config) {
+		config.PopExpiredOauthFlowByState = popExpiredOauthFlowByState
 	}
 }
 

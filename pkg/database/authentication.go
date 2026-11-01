@@ -322,6 +322,9 @@ func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql
 const (
 	oauthFlowInsertQuery = `INSERT INTO oauth_flow (state, code_verifier, redirect_url, expires_at) VALUES ($1, $2, $3, $4) RETURNING id;`
 	oauthFlowDeleteQuery = `DELETE FROM oauth_flow WHERE id = $1 RETURNING state, code_verifier, expires_at, redirect_url;`
+	// The expiry is in the statement, not checked after it, so that a live flow is never removed by
+	// its state alone.
+	oauthFlowDeleteExpiredByStateQuery = `DELETE FROM oauth_flow WHERE state = $1 AND expires_at <= $2 RETURNING id, expires_at, redirect_url;`
 )
 
 func InsertOauthFlow(
@@ -398,6 +401,36 @@ func PopOauthFlow(ctx context.Context, id string, db *sql.DB) (*oauth_flow.Flow,
 	}
 
 	if err := row.Scan(&flow.State, &flow.CodeVerifier, &flow.ExpiresAt, &flow.RedirectUrl); err != nil {
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+	}
+
+	return &flow, nil
+}
+
+// PopExpiredOauthFlowByState removes and returns the flow the state names if it expired by now; a
+// live flow is neither removed nor returned. The code verifier is not returned: what is popped this
+// way is never redeemed.
+func PopExpiredOauthFlowByState(ctx context.Context, state string, now time.Time, db *sql.DB) (*oauth_flow.Flow, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("context err: %w", err)
+	}
+
+	if state == "" {
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("state"))
+	}
+
+	if db == nil {
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql db"))
+	}
+
+	flow := oauth_flow.Flow{State: state}
+
+	row := db.QueryRowContext(ctx, oauthFlowDeleteExpiredByStateQuery, state, now)
+	if row == nil {
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
+	}
+
+	if err := row.Scan(&flow.Id, &flow.ExpiresAt, &flow.RedirectUrl); err != nil {
 		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
 	}
 

@@ -61,6 +61,19 @@ import (
 // a list longer than this is not a browser doing that.
 const maxCallbackCookieValues = 4
 
+// The login endpoint's parameter naming where a sign-in is bound, as login_endpoint.UrlInput reads it.
+const loginRedirectParameter = "redirect"
+
+var (
+	errInvalidLoginPath   = errors.New("login path is not a plain absolute path")
+	errUnexpiredOauthFlow = errors.New("unexpired oauth flow popped as expired")
+)
+
+const (
+	locationHeaderName  = "Location"
+	setCookieHeaderName = "Set-Cookie"
+)
+
 // categoryProblemPaths maps an OAuth error category to the canonical path of its
 // problem page. Redirect targets are these paths resolved against the origin
 // passed to Initialize, so the problem endpoints must be mounted at these paths.
@@ -105,9 +118,16 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	// sign-in's log line. With none, the log names no address at all.
 	EmailAddressHasher *pii_hasher.Hasher
 
-	popOauthFlow        func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)
-	problemRedirectUrls map[oauth_error.Category]string
-	classifyOauthError  func(*oauth_error.Error) oauth_error.Category
+	// LoginPath is the path of the login endpoint whose flows this completes; see callback_endpoint_config.
+	LoginPath string
+
+	popOauthFlow               func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error)
+	popExpiredOauthFlowByState func(ctx context.Context, state string, now time.Time, database *sql.DB) (*oauth_flow.Flow, error)
+	problemRedirectUrls        map[oauth_error.Category]string
+	classifyOauthError         func(*oauth_error.Error) oauth_error.Category
+
+	// loginUrl is LoginPath resolved against the origin by Initialize; nil without a LoginPath.
+	loginUrl *url.URL
 
 	// tokenEndpoint is the provider's token URL, as the log's body masks name it; set by Initialize.
 	tokenEndpoint *schema.Url
@@ -117,7 +137,7 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 // (scheme and host, e.g. "https://admin.example.com") that the problem page
 // paths are resolved against to form the error redirect targets; an empty origin
 // yields same-origin relative redirects. The problem endpoints must be mounted
-// at the paths in categoryProblemPaths.
+// at the paths in categoryProblemPaths. LoginPath is resolved against the same origin.
 func (e *Endpoint[T]) Initialize(
 	origin string,
 	oauthConfig *altshiftOauth2Config.Config,
@@ -154,6 +174,24 @@ func (e *Endpoint[T]) Initialize(
 	}
 	e.problemRedirectUrls = problemRedirectUrls
 
+	e.loginUrl = nil
+	if loginPath := e.LoginPath; loginPath != "" {
+		// Anything more than a path could take the restart to another origin: "//host/login" is one.
+		loginPathUrl, err := url.Parse(loginPath)
+		if err != nil {
+			return altshiftErrors.NewWithTrace(fmt.Errorf("url parse (login path): %w", err), loginPath)
+		}
+		if loginPathUrl.Scheme != "" || loginPathUrl.Host != "" || loginPathUrl.RawQuery != "" ||
+			loginPathUrl.Fragment != "" || !strings.HasPrefix(loginPath, "/") || strings.Contains(loginPath, `\`) {
+			return altshiftErrors.NewWithTrace(errInvalidLoginPath, loginPath)
+		}
+		originUrl, err := url.Parse(origin)
+		if err != nil {
+			return altshiftErrors.NewWithTrace(fmt.Errorf("url parse (origin): %w", err), origin)
+		}
+		e.loginUrl = originUrl.ResolveReference(&url.URL{Path: loginPath})
+	}
+
 	db := sessionManager.Db
 	if db == nil {
 		return altshiftErrors.NewWithTrace(nil_error.New("session manager sql db"))
@@ -167,6 +205,16 @@ func (e *Endpoint[T]) Initialize(
 			return nil, responseError
 		}
 
+		clearedCallbackCookie := http.Cookie{
+			Name:     e.CallbackCookieName,
+			Path:     e.Path,
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			Secure:   true,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		}
+
 		// Every cookie of the name is tried, rather than the first. A deployment
 		// behind a front end that forwards only one cookie name -- Firebase
 		// Hosting forwards only `__session` -- has to give this cookie that name
@@ -176,12 +224,12 @@ func (e *Endpoint[T]) Initialize(
 		// which of them arrives first is not a thing to depend on.
 		callbackCookies := request.CookiesNamed(e.CallbackCookieName)
 		if len(callbackCookies) == 0 {
-			return nil, &response_error.ResponseError{
+			return nil, e.refuseOrRestart(ctx, urlInput, db, &clearedCallbackCookie, &response_error.ResponseError{
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("No callback cookie."),
 				),
-			}
+			})
 		}
 
 		var callbackCookieValues []string
@@ -195,13 +243,13 @@ func (e *Endpoint[T]) Initialize(
 			}
 		}
 		if len(callbackCookieValues) == 0 {
-			return nil, &response_error.ResponseError{
+			return nil, e.refuseOrRestart(ctx, urlInput, db, &clearedCallbackCookie, &response_error.ResponseError{
 				ClientError: altshiftErrors.NewWithTrace(empty_error.New("callback cookie value")),
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("Empty callback cookie."),
 				),
-			}
+			})
 		}
 
 		if len(callbackCookieValues) > 1 {
@@ -249,11 +297,9 @@ func (e *Endpoint[T]) Initialize(
 			}
 		}
 		if oauthFlow == nil {
-			// Terminal on purpose. The cookie is what binds the callback to the
-			// browser that began the flow; falling back to the state in the URL --
-			// which whoever holds the callback link has -- would hand that binding
-			// away in precisely the case an attacker arranges.
-			return nil, &response_error.ResponseError{
+			// No sign-in is completed from here: the cookie is what binds the callback to the browser
+			// that began the flow, and the state in the URL is had by whoever holds the link.
+			return nil, e.refuseOrRestart(ctx, urlInput, db, &clearedCallbackCookie, &response_error.ResponseError{
 				ClientError: altshiftErrors.NewWithTrace(
 					ssoErrors.ErrNoMatchingOauthFlow,
 					len(callbackCookieValues),
@@ -262,7 +308,7 @@ func (e *Endpoint[T]) Initialize(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("No OAuth flow matches the callback cookie value."),
 				),
-			}
+			})
 		}
 
 		oauthFlowExpiresAt := oauthFlow.ExpiresAt
@@ -273,6 +319,10 @@ func (e *Endpoint[T]) Initialize(
 		}
 
 		if oauthFlowExpiresAt.Before(time.Now()) {
+			// A provider error is an answer -- a decline, say -- that a restart would ask for again.
+			if e.loginUrl != nil && urlInput.Error == "" {
+				return nil, restartSignIn(e.loginUrl, oauthFlow.RedirectUrl, &clearedCallbackCookie)
+			}
 			return nil, &response_error.ResponseError{
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
@@ -288,16 +338,6 @@ func (e *Endpoint[T]) Initialize(
 					problem_detail_config.WithDetail("The OAuth flow state and url state do not match."),
 				),
 			}
-		}
-
-		clearedCallbackCookie := http.Cookie{
-			Name:     e.CallbackCookieName,
-			Path:     e.Path,
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			Secure:   true,
-			HttpOnly: true,
-			SameSite: http.SameSiteLaxMode,
 		}
 
 		// If the provider returned an error instead of an authorization code (e.g.
@@ -353,8 +393,8 @@ func (e *Endpoint[T]) Initialize(
 			return &muxResponse.Response{
 				StatusCode: http.StatusSeeOther,
 				Headers: []*muxResponse.HeaderEntry{
-					{Name: "Location", Value: redirectUrl},
-					{Name: "Set-Cookie", Value: clearedCallbackCookie.String()},
+					{Name: locationHeaderName, Value: redirectUrl},
+					{Name: setCookieHeaderName, Value: clearedCallbackCookie.String()},
 				},
 			}, nil
 		}
@@ -550,11 +590,11 @@ func (e *Endpoint[T]) Initialize(
 		response.Headers = append(
 			response.Headers,
 			&muxResponse.HeaderEntry{
-				Name:  "Location",
+				Name:  locationHeaderName,
 				Value: oauthFlow.RedirectUrl,
 			},
 			&muxResponse.HeaderEntry{
-				Name:  "Set-Cookie",
+				Name:  setCookieHeaderName,
 				Value: clearedCallbackCookie.String(),
 			},
 		)
@@ -565,6 +605,85 @@ func (e *Endpoint[T]) Initialize(
 	e.Initialized = true
 
 	return nil
+}
+
+// refuseOrRestart answers a callback that no flow cookie completes: with the refusal, unless the
+// state names a flow that expired, which is removed and its sign-in restarted. The state can restart
+// a sign-in but never completes one, and a live flow is never restarted, so a browser that cannot
+// keep the cookie is refused rather than sent round again. A provider error is never restarted: it
+// is an answer -- a decline, say -- that a restart would ask for again.
+func (e *Endpoint[T]) refuseOrRestart(
+	ctx context.Context,
+	urlInput *UrlInput,
+	db *sql.DB,
+	clearedCallbackCookie *http.Cookie,
+	refusal *response_error.ResponseError,
+) *response_error.ResponseError {
+	if e.loginUrl == nil || urlInput == nil || urlInput.State == "" || urlInput.Error != "" {
+		return refusal
+	}
+
+	dbCtx, dbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
+	defer dbCtxCancel()
+
+	// The state is not named in an error: it correlates a sign-in, as the log's masks say.
+	now := time.Now()
+	expiredOauthFlow, err := e.popExpiredOauthFlowByState(dbCtx, urlInput.State, now, db)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return refusal
+		}
+		return &response_error.ResponseError{
+			ServerError: altshiftErrors.New(fmt.Errorf("pop expired oauth flow by state: %w", err)),
+		}
+	}
+	if expiredOauthFlow == nil {
+		return &response_error.ResponseError{
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("expired oauth flow")),
+		}
+	}
+
+	// Checked here as well as in the store, since a store is configurable and a live flow must not restart.
+	expiresAt := expiredOauthFlow.ExpiresAt
+	if expiresAt == nil {
+		return &response_error.ResponseError{
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("expired oauth flow expires at")),
+		}
+	}
+	if expiresAt.After(now) {
+		return &response_error.ResponseError{
+			ServerError: altshiftErrors.NewWithTrace(errUnexpiredOauthFlow, *expiresAt),
+		}
+	}
+
+	return restartSignIn(e.loginUrl, expiredOauthFlow.RedirectUrl, clearedCallbackCookie)
+}
+
+// restartSignIn sends the browser to the login endpoint to sign in again, bound where the expired
+// flow was. The problem detail stays, and the Location header makes the mux answer 303.
+func restartSignIn(loginUrl *url.URL, redirectUrl string, clearedCallbackCookie *http.Cookie) *response_error.ResponseError {
+	if loginUrl == nil {
+		return &response_error.ResponseError{
+			ServerError: altshiftErrors.NewWithTrace(nil_error.New("login url")),
+		}
+	}
+
+	restartUrl := *loginUrl
+	query := restartUrl.Query()
+	query.Set(loginRedirectParameter, redirectUrl)
+	restartUrl.RawQuery = query.Encode()
+
+	return &response_error.ResponseError{
+		ClientError: altshiftErrors.NewWithTrace(ssoErrors.ErrExpiredOauthFlow),
+		ProblemDetail: problem_detail.New(
+			http.StatusBadRequest,
+			problem_detail_config.WithDetail("The OAuth flow has expired; the sign-in is restarted."),
+		),
+		Headers: []*muxResponse.HeaderEntry{
+			{Name: locationHeaderName, Value: restartUrl.String()},
+			{Name: setCookieHeaderName, Value: clearedCallbackCookie.String()},
+		},
+	}
 }
 
 func New[T provider_claims.ProviderClaims](path string, options ...callback_endpoint_config.Option) (*Endpoint[T], error) {
@@ -590,7 +709,9 @@ func New[T provider_claims.ProviderClaims](path string, options ...callback_endp
 		StrongAuthenticationMethodReferences: config.StrongAuthenticationMethodReferences,
 		RequireOrganization:                  config.RequireOrganization,
 		AllowedOrganizations:                 config.AllowedOrganizations,
+		LoginPath:                            config.LoginPath,
 		popOauthFlow:                         config.PopOauthFlow,
+		popExpiredOauthFlowByState:           config.PopExpiredOauthFlowByState,
 		classifyOauthError:                   config.ClassifyOauthError,
 	}, nil
 }

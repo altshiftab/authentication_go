@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/sso/errors/oauth_error"
@@ -22,6 +23,13 @@ func TestNew(t *testing.T) {
 	}
 	if config.PopOauthFlow == nil {
 		t.Errorf("nil pop oauth flow")
+	}
+	if config.PopExpiredOauthFlowByState == nil {
+		t.Errorf("nil pop expired oauth flow by state")
+	}
+	// No login path, no restart: an endpoint has to be told where its flows start.
+	if config.LoginPath != "" {
+		t.Errorf("login path: got %q", config.LoginPath)
 	}
 	if config.ClassifyOauthError == nil {
 		t.Errorf("nil classify oauth error")
@@ -83,6 +91,33 @@ func TestOptions(t *testing.T) {
 
 		if _, err := config.PopOauthFlow(t.Context(), "", nil); err != nil {
 			t.Fatalf("pop oauth flow: %v", err)
+		}
+		if !invoked {
+			t.Errorf("expected the configured function to be invoked")
+		}
+	})
+
+	t.Run("with login path", func(t *testing.T) {
+		t.Parallel()
+
+		if config := New(WithLoginPath("/login")); config.LoginPath != "/login" {
+			t.Errorf("login path: got %q", config.LoginPath)
+		}
+	})
+
+	t.Run("with pop expired oauth flow by state", func(t *testing.T) {
+		t.Parallel()
+
+		invoked := false
+		config := New(WithPopExpiredOauthFlowByState(
+			func(_ context.Context, _ string, _ time.Time, _ *sql.DB) (*oauth_flow.Flow, error) {
+				invoked = true
+				return nil, nil
+			},
+		))
+
+		if _, err := config.PopExpiredOauthFlowByState(t.Context(), "", time.Time{}, nil); err != nil {
+			t.Fatalf("pop expired oauth flow by state: %v", err)
 		}
 		if !invoked {
 			t.Errorf("expected the configured function to be invoked")

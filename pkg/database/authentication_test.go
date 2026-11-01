@@ -253,6 +253,46 @@ func TestPopOauthFlow(t *testing.T) {
 	}
 }
 
+func TestPopExpiredOauthFlowByState(t *testing.T) {
+	t.Parallel()
+
+	db := altshiftSqlTesting.NewDb()
+	t.Cleanup(func() { _ = db.Close() })
+
+	testCases := []struct {
+		name       string
+		state      string
+		db         *sql.DB
+		canceled   bool
+		wantNoRows bool
+	}{
+		{name: "empty state", state: "", db: db},
+		{name: "nil db", state: "state", db: nil},
+		{name: "canceled ctx", state: "state", db: db, canceled: true},
+		// The callback reads no rows as nothing to restart, so it must survive the wrapping.
+		{name: "scan no rows", state: "state", db: db, wantNoRows: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			if testCase.canceled {
+				ctx = canceledCtx()
+			}
+			flow, err := PopExpiredOauthFlowByState(ctx, testCase.state, time.Now(), testCase.db)
+			if err == nil {
+				t.Fatalf("%s: expected error, got nil", testCase.name)
+			}
+			if flow != nil {
+				t.Errorf("%s: expected no flow, got %+v", testCase.name, flow)
+			}
+			if testCase.wantNoRows && !errors.Is(err, sql.ErrNoRows) {
+				t.Errorf("%s: expected sql.ErrNoRows in chain, got %v", testCase.name, err)
+			}
+		})
+	}
+}
+
 func TestInsertDbscChallenge(t *testing.T) {
 	t.Parallel()
 
