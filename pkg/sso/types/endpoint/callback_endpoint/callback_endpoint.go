@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
@@ -215,17 +216,18 @@ func (e *Endpoint[T]) Initialize(
 		var oauthFlow *oauth_flow.Flow
 		var popErr error
 		for _, callbackCookieValue := range callbackCookieValues {
-			// A pop that matches nothing removes nothing, so the values can be
-			// tried in turn. None of them is named in an error: see above.
-			//
-			// Any error means "not this one" and the next value is tried, rather
-			// than sql.ErrNoRows alone: a value that is not a well-formed flow id
-			// has the store objecting to its syntax instead of reporting no rows,
-			// and a session token sitting beside the flow id is precisely that.
-			// Stopping at the first such value would defeat the whole point of
-			// trying them all. The last error is kept so that a store failing
-			// outright is still reported as a server error and not a bad request.
-			poppedOauthFlow, err := e.popOauthFlow(dbPopCtx, callbackCookieValue, db)
+			// A flow id is a uuid, so anything else -- a session token sharing the name -- is not
+			// put to the store, whose refusal of its syntax would read as the store failing. It is
+			// put in canonical form, since the parser accepts forms the store does not.
+			flowId, err := uuid.Parse(callbackCookieValue)
+			if err != nil {
+				continue
+			}
+
+			// A pop that matches nothing removes nothing, so the values can be tried in turn. None of
+			// them is named in an error: see above. An error moves on to the next value too, and the
+			// last is kept so that a store failing outright is a server error, not a bad request.
+			poppedOauthFlow, err := e.popOauthFlow(dbPopCtx, flowId.String(), db)
 			if err != nil {
 				if !errors.Is(err, sql.ErrNoRows) {
 					popErr = err

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
@@ -20,6 +21,9 @@ import (
 // What a flow store keyed by a uuid returns for a value that is not one.
 var errMalformedFlowId = errors.New("invalid input syntax for type uuid")
 
+// What a store that is failing outright returns.
+var errStoreFailure = errors.New("store failure")
+
 // A front end that forwards a single cookie name -- Firebase Hosting forwards
 // only `__session` -- leaves the callback cookie sharing a name with the session
 // cookie, so the callback is reached with more than one cookie of that name and
@@ -27,8 +31,13 @@ var errMalformedFlowId = errors.New("invalid input syntax for type uuid")
 func TestEndpointSeveralCallbackCookies(t *testing.T) {
 	t.Parallel()
 
-	const otherValue = "not-a-flow-id"
-	const malformedValue = "not-a-uuid-at-all"
+	// Another flow's id: well formed, but not the flow this callback is for.
+	const otherFlowId = "6c2e9a41-0d3b-4f8a-b7e5-91a4c2d8f306"
+	const anotherFlowId = "a93d5f12-7e64-4b0c-8d29-5f1e3b7c4a68"
+	// A flow id the store fails on.
+	const failingFlowId = "2b7f4e90-c1a8-4d35-9e6b-0a5c8f3d2e17"
+	// A session token shares the cookie's name and is not a uuid.
+	const sessionCookieValue = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl"
 
 	successArgs := func() *muxTesting.Args {
 		return &muxTesting.Args{
@@ -55,14 +64,14 @@ func TestEndpointSeveralCallbackCookies(t *testing.T) {
 	}{
 		{
 			name:             "flow id first",
-			cookieValues:     []string{testing2.OauthFlowId, otherValue},
+			cookieValues:     []string{testing2.OauthFlowId, otherFlowId},
 			args:             successArgs(),
 			expectedPopCount: 1,
 		},
 		{
 			// The one the previous single-cookie read got wrong.
 			name:             "flow id second",
-			cookieValues:     []string{otherValue, testing2.OauthFlowId},
+			cookieValues:     []string{otherFlowId, testing2.OauthFlowId},
 			args:             successArgs(),
 			expectedPopCount: 2,
 		},
@@ -76,38 +85,49 @@ func TestEndpointSeveralCallbackCookies(t *testing.T) {
 			// The state in the url matches a flow, so a fallback to looking the
 			// flow up by state would turn this into a sign-in. It must not.
 			name:             "no value matches a flow",
-			cookieValues:     []string{otherValue, "another-" + otherValue},
+			cookieValues:     []string{otherFlowId, anotherFlowId},
 			args:             noMatchArgs(),
 			expectedPopCount: 2,
 		},
 		{
-			// A store keyed by a uuid answers a value that is not one with a
-			// complaint about its syntax rather than with no rows, and a
-			// session token beside the flow id is exactly such a value.
-			// Stopping there would defeat trying them all.
-			name:             "malformed value before the flow id",
-			cookieValues:     []string{malformedValue, testing2.OauthFlowId},
+			// A signed-in browser sends its session token too; it is never put to the store.
+			name:             "session token before the flow id",
+			cookieValues:     []string{sessionCookieValue, testing2.OauthFlowId},
 			args:             successArgs(),
-			expectedPopCount: 2,
+			expectedPopCount: 1,
+		},
+		{
+			// The parser takes forms the store does not; the flow id is put in canonical form.
+			name:             "flow id in urn form",
+			cookieValues:     []string{"urn:uuid:" + testing2.OauthFlowId},
+			args:             successArgs(),
+			expectedPopCount: 1,
+		},
+		{
+			// A signed-in browser whose flow cookie is gone: the browser's fault, not the store's.
+			name:             "session token alone",
+			cookieValues:     []string{sessionCookieValue},
+			args:             noMatchArgs(),
+			expectedPopCount: 0,
 		},
 		{
 			// A store that is failing outright is still a server error.
-			name:         "every value malformed",
-			cookieValues: []string{malformedValue, malformedValue},
+			name:         "store failure",
+			cookieValues: []string{sessionCookieValue, failingFlowId},
 			args: &muxTesting.Args{
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			expectedPopCount: 2,
+			expectedPopCount: 1,
 		},
 		{
 			name: "more values than are tried",
 			cookieValues: []string{
-				otherValue,
-				otherValue,
-				otherValue,
-				otherValue,
-				otherValue,
+				otherFlowId,
+				otherFlowId,
+				otherFlowId,
+				otherFlowId,
+				otherFlowId,
 				testing2.OauthFlowId,
 			},
 			args:             noMatchArgs(),
@@ -132,11 +152,15 @@ func TestEndpointSeveralCallbackCookies(t *testing.T) {
 			testEndpoint.popOauthFlow = func(_ context.Context, id string, _ *sql.DB) (*oauth_flow.Flow, error) {
 				popCount++
 
-				if id == malformedValue {
-					return nil, errMalformedFlowId
-				}
-
-				if id != testing2.OauthFlowId {
+				switch id {
+				case testing2.OauthFlowId:
+				case failingFlowId:
+					return nil, errStoreFailure
+				default:
+					// Stricter than Postgres, which takes some other forms but not all the parser does.
+					if parsed, err := uuid.Parse(id); err != nil || parsed.String() != id {
+						return nil, errMalformedFlowId
+					}
 					return nil, sql.ErrNoRows
 				}
 
