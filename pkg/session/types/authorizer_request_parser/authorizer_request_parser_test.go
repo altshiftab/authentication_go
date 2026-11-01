@@ -16,7 +16,6 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
 	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
-	"github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
@@ -57,7 +56,7 @@ func makeCookieWithMethods(signer altshiftCryptoInterfaces.NamedSigner, methods 
 	sessionClaims := &session_claims.Claims{
 		Claims: registered_claims.Claims{
 			Issuer:    issuer,
-			Subject:   fmt.Sprintf("test-subject-id:test@example.com"),
+			Subject:   "test-subject-id:test@example.com",
 			Audience:  claim_strings.ClaimStrings{audience},
 			ExpiresAt: numeric_date.New(exp),
 			NotBefore: numeric_date.New(time.Now()),
@@ -92,6 +91,8 @@ func makeCookieWithMethods(signer altshiftCryptoInterfaces.NamedSigner, methods 
 }
 
 func TestParser_Parse(t *testing.T) {
+	t.Parallel()
+
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("ed25519 generate key: %v", err)
@@ -155,7 +156,7 @@ func TestParser_Parse(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			request, err := http.NewRequest(http.MethodGet, "/", nil)
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			if err != nil {
 				t.Fatalf("new request: %v", err)
 			}
@@ -206,7 +207,6 @@ func TestParser_Parse(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 func TestParser_Verifier(t *testing.T) {
@@ -255,6 +255,8 @@ func TestParser_Verifier(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	publicKey, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		panic(fmt.Errorf("ed25519 generate key: %w", err))
@@ -271,7 +273,7 @@ func TestNew(t *testing.T) {
 	}
 
 	type args struct {
-		verifier interfaces.NamedVerifier
+		verifier altshiftCryptoInterfaces.NamedVerifier
 		issuer   string
 		audience string
 		options  []authorizer_request_parser_config.Option

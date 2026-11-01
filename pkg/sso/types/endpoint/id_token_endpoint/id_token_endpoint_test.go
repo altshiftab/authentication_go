@@ -13,7 +13,6 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoTesting "github.com/altshiftab/authentication_go/pkg/sso/testing"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/id_token_endpoint/id_token_endpoint_config"
-	altshiftCryptoEcdsa "github.com/altshiftab/utils_go/pkg/crypto/ecdsa"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
@@ -34,13 +33,9 @@ const (
 
 var testIssuers = []string{testIssuer}
 
-var sessionManager *session_manager.Manager
-var idTokenAuthenticator *authenticator.AuthenticatorWithKeyHandler
-var idTokenMethod *altshiftCryptoEcdsa.Method
+var sessionManager, idTokenAuthenticator, _, idTokenMethod = ssoTesting.SetUp()
 
 func TestMain(m *testing.M) {
-	sessionManager, idTokenAuthenticator, _, idTokenMethod = ssoTesting.SetUp()
-
 	code := m.Run()
 	_ = sessionManager.Db.Close()
 

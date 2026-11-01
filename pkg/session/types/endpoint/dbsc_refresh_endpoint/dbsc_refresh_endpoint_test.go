@@ -3,6 +3,7 @@ package dbsc_refresh_endpoint
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,11 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
+)
+
+// Errors the tests' stand-ins fail with.
+var (
+	errTestAuthenticationIdMismatch = errors.New("authentication id mismatch")
 )
 
 var defaultTestEndpoint = New()
@@ -241,7 +247,7 @@ func TestEndpoint(t *testing.T) {
 				dbsc_session_response_processor_config.WithPopDbscChallenge(
 					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
 						if authenticationId != loginTesting.AuthenticationId {
-							return nil, fmt.Errorf("authentication id mismatch: got %s, want %s", authenticationId, loginTesting.AuthenticationId)
+							return nil, fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, authenticationId, loginTesting.AuthenticationId)
 						}
 
 						// How the store reports a challenge that has been redeemed already.
@@ -365,6 +371,7 @@ func TestEndpoint_Initialize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if err := New().Initialize(tt.args.pr, tt.args.sm); (err != nil) != tt.wantErr {
 				t.Errorf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
 			}

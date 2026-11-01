@@ -33,6 +33,13 @@ import (
 	altshiftLog "github.com/altshiftab/utils_go/pkg/log"
 )
 
+// Errors the tests' stand-ins fail with.
+var (
+	errTestSelect               = errors.New("boom")
+	errTestInsertAuthentication = errors.New("db down")
+	errTestInsertDbsc           = errors.New("dbsc boom")
+)
+
 const (
 	testIssuer       = "test-issuer"
 	testCookieDomain = "example.com"
@@ -130,7 +137,8 @@ func TestNew(t *testing.T) {
 
 	signer := newTestSigner(t)
 	db := altshiftSqlTesting.NewDb()
-	defer db.Close()
+	// Not deferred: the subtests are parallel and run after this function returns.
+	t.Cleanup(func() { _ = db.Close() })
 
 	tests := []struct {
 		name         string
@@ -248,7 +256,7 @@ func TestManager_CreateSession(t *testing.T) {
 			name:         "select account error",
 			authMethod:   authentication_method.Sso,
 			emailAddress: testEmail,
-			stubs:        &stubs{selectErr: errors.New("boom")},
+			stubs:        &stubs{selectErr: errTestSelect},
 		},
 		{
 			name:         "nil account from selector",
@@ -323,7 +331,7 @@ func TestManager_CreateSession(t *testing.T) {
 			name:         "insert authentication error",
 			authMethod:   authentication_method.Sso,
 			emailAddress: testEmail,
-			stubs:        &stubs{account: newAccount(), insertAuthErr: errors.New("db down")},
+			stubs:        &stubs{account: newAccount(), insertAuthErr: errTestInsertAuthentication},
 		},
 		{
 			name:         "nil authentication from inserter",
@@ -347,7 +355,7 @@ func TestManager_CreateSession(t *testing.T) {
 			name:         "insert dbsc challenge error",
 			authMethod:   authentication_method.Sso,
 			emailAddress: testEmail,
-			stubs:        &stubs{account: newAccount(), authentication: newAuthentication(), insertDbscErr: errors.New("dbsc boom")},
+			stubs:        &stubs{account: newAccount(), authentication: newAuthentication(), insertDbscErr: errTestInsertDbsc},
 		},
 		{
 			name:         "nil authentication expires at",

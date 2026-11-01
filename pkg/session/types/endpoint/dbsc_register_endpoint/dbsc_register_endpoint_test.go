@@ -38,6 +38,11 @@ import (
 	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
+// Errors the tests' stand-ins fail with.
+var (
+	errTestAuthenticationIdMismatch = errors.New("authentication id mismatch")
+)
+
 var defaultSessionCookieString string
 var defaultAuthorizationRequestParser *authorizer_request_parser.Parser
 var defaultProcessor *dbsc_session_response_processor.Processor
@@ -148,7 +153,7 @@ func TestEndpoint(t *testing.T) {
 				dbsc_session_response_processor_config.WithPopDbscChallenge(
 					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
 						if authenticationId != loginTesting.AuthenticationId {
-							return nil, fmt.Errorf("authentication id mismatch: got %s, want %s", authenticationId, loginTesting.AuthenticationId)
+							return nil, fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, authenticationId, loginTesting.AuthenticationId)
 						}
 
 						return &dbsc_challenge.Challenge{
@@ -229,7 +234,7 @@ func TestEndpoint_SessionCookieOptions(t *testing.T) {
 		dbsc_session_response_processor_config.WithPopDbscChallenge(
 			func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
 				if authenticationId != loginTesting.AuthenticationId {
-					return nil, fmt.Errorf("authentication id mismatch: got %s, want %s", authenticationId, loginTesting.AuthenticationId)
+					return nil, fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, authenticationId, loginTesting.AuthenticationId)
 				}
 
 				expiresAt := time.Now().Add(time.Hour)
@@ -451,6 +456,7 @@ func TestEndpoint_Initialize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if err := New().Initialize(tt.args.arp, tt.args.pr, tt.args.dom); (err != nil) != tt.wantErr {
 				t.Errorf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -525,6 +531,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := New(tt.args.options...)
 			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
@@ -583,7 +590,7 @@ func TestEndpoint_ReissuesSessionCookieWithTokenExpiry(t *testing.T) {
 	httpServer := httptest.NewServer(mux)
 	defer httpServer.Close()
 
-	request, err := http.NewRequest(testEndpoint.Method, httpServer.URL+testEndpoint.Path, nil)
+	request, err := http.NewRequestWithContext(t.Context(), testEndpoint.Method, httpServer.URL+testEndpoint.Path, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -593,6 +600,9 @@ func TestEndpoint_ReissuesSessionCookieWithTokenExpiry(t *testing.T) {
 	response, err := httpServer.Client().Do(request)
 	if err != nil {
 		t.Fatalf("client do: %v", err)
+	}
+	if response == nil {
+		t.Fatal("nil response")
 	}
 	defer response.Body.Close()
 
@@ -674,6 +684,9 @@ func TestEndpoint_CookieDomainNarrowerThanSite(t *testing.T) {
 	httpResponse, err := httpServer.Client().Do(request)
 	if err != nil {
 		t.Fatalf("client do: %v", err)
+	}
+	if httpResponse == nil {
+		t.Fatal("nil response")
 	}
 	defer httpResponse.Body.Close()
 

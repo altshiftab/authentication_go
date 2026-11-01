@@ -26,6 +26,11 @@ import (
 	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
+// Errors the tests' stand-ins fail with.
+var (
+	errTestDb = errors.New("db error")
+)
+
 var defaultSessionCookieString string
 var defaultAuthorizationRequestParser *authorizer_request_parser.Parser
 
@@ -33,7 +38,6 @@ var db *sql.DB
 var method altshiftCryptoInterfaces.Method
 
 func TestMain(m *testing.M) {
-
 	defaultAuthorizationRequestParser, method, db = loginTesting.SetUp()
 	defaultSessionCookieString = loginTesting.MakeStandardCookie(loginTesting.AuthenticationId, method)
 
@@ -77,7 +81,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			dbErr: errors.New("db error"),
+			dbErr: errTestDb,
 		},
 		{
 			name: "authenticated with empty authentication id",
@@ -117,7 +121,6 @@ func TestEndpoint(t *testing.T) {
 			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
 		})
 	}
-
 }
 
 func TestEndpoint_Initialize(t *testing.T) {
@@ -160,6 +163,7 @@ func TestEndpoint_Initialize(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if err := New().Initialize(tt.args.authorizerRequestParser, corsConfigurator, tt.args.db); (err != nil) != tt.wantErr {
 				t.Errorf("Initialize() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -219,6 +223,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := New(tt.args.options...)
 			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)

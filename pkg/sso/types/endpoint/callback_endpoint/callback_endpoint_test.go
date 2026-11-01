@@ -3,7 +3,6 @@ package callback_endpoint
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/callback_endpoint/callback_endpoint_config"
 	"net/http"
 	"net/http/httptest"
@@ -112,7 +111,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			dbErr: fmt.Errorf("db error"),
+			dbErr: errStoreFailure,
 		},
 		{
 			name: "expired oauth flow",
@@ -257,7 +256,7 @@ func TestEndpoint(t *testing.T) {
 			}
 
 			if !testCase.skipCallbackCookie {
-				callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName}
+				callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName} //nolint:gosec // G124: a request cookie; its attributes are never sent.
 				if !testCase.emptyCallbackCookie {
 					callbackCookie.Value = testing2.OauthFlowId
 				}
@@ -279,6 +278,43 @@ func TestEndpoint(t *testing.T) {
 			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
 		})
 	}
+}
+
+// runSignIn completes a sign-in through a callback endpoint built with the options, the provider
+// answering the code, and checks the answer against the args.
+func runSignIn(t *testing.T, code string, args *muxTesting.Args, options ...callback_endpoint_config.Option) {
+	t.Helper()
+
+	testEndpoint, err := New[*testing2.ProviderClaims](defaultPath, options...)
+	if err != nil {
+		t.Fatalf("new endpoint: %v", err)
+	}
+
+	if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
+		t.Fatalf("test endpoint initialize: %v", err)
+	}
+
+	testEndpoint.popOauthFlow = func(_ context.Context, _ string, _ *sql.DB) (*oauth_flow.Flow, error) {
+		expiresAt := time.Now().Add(time.Hour)
+		return &oauth_flow.Flow{
+			Id:          testing2.OauthFlowId,
+			RedirectUrl: testing2.RedirectUrl,
+			State:       testing2.State,
+			ExpiresAt:   &expiresAt,
+		}, nil
+	}
+
+	mux := &muxPkg.Mux{}
+	mux.Add(testEndpoint.Endpoint.Endpoint)
+	httpServer := httptest.NewServer(mux)
+	defer httpServer.Close()
+
+	callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId} //nolint:gosec // G124: a request cookie; its attributes are never sent.
+	args.Headers = append(args.Headers, [2]string{"Cookie", callbackCookie.String()})
+	args.Path = testEndpoint.Path + "?state=" + testing2.State + "&code=" + code
+	args.Method = testEndpoint.Method
+
+	muxTesting.TestArgs(t, args, httpServer.URL)
 }
 
 // TestEndpoint_RequireStrongAuthentication covers refusing a sign-in whose method the identity
@@ -316,39 +352,7 @@ func TestEndpoint_RequireStrongAuthentication(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			testEndpoint, err := New[*testing2.ProviderClaims](
-				defaultPath,
-				callback_endpoint_config.WithRequireStrongAuthentication(true),
-			)
-			if err != nil {
-				t.Fatalf("new endpoint: %v", err)
-			}
-
-			if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
-				t.Fatalf("test endpoint initialize: %v", err)
-			}
-
-			testEndpoint.popOauthFlow = func(_ context.Context, _ string, _ *sql.DB) (*oauth_flow.Flow, error) {
-				expiresAt := time.Now().Add(time.Hour)
-				return &oauth_flow.Flow{
-					Id:          testing2.OauthFlowId,
-					RedirectUrl: testing2.RedirectUrl,
-					State:       testing2.State,
-					ExpiresAt:   &expiresAt,
-				}, nil
-			}
-
-			mux := &muxPkg.Mux{}
-			mux.Add(testEndpoint.Endpoint.Endpoint)
-			httpServer := httptest.NewServer(mux)
-			defer httpServer.Close()
-
-			callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId}
-			testCase.args.Headers = append(testCase.args.Headers, [2]string{"Cookie", callbackCookie.String()})
-			testCase.args.Path = testEndpoint.Path + "?state=" + testing2.State + "&code=" + testCase.code
-			testCase.args.Method = testEndpoint.Method
-
-			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
+			runSignIn(t, testCase.code, testCase.args, callback_endpoint_config.WithRequireStrongAuthentication(true))
 		})
 	}
 }
@@ -387,39 +391,7 @@ func TestEndpoint_RequireOrganization(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			testEndpoint, err := New[*testing2.ProviderClaims](
-				defaultPath,
-				callback_endpoint_config.WithRequireOrganization(true),
-			)
-			if err != nil {
-				t.Fatalf("new endpoint: %v", err)
-			}
-
-			if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
-				t.Fatalf("test endpoint initialize: %v", err)
-			}
-
-			testEndpoint.popOauthFlow = func(_ context.Context, _ string, _ *sql.DB) (*oauth_flow.Flow, error) {
-				expiresAt := time.Now().Add(time.Hour)
-				return &oauth_flow.Flow{
-					Id:          testing2.OauthFlowId,
-					RedirectUrl: testing2.RedirectUrl,
-					State:       testing2.State,
-					ExpiresAt:   &expiresAt,
-				}, nil
-			}
-
-			mux := &muxPkg.Mux{}
-			mux.Add(testEndpoint.Endpoint.Endpoint)
-			httpServer := httptest.NewServer(mux)
-			defer httpServer.Close()
-
-			callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId}
-			testCase.args.Headers = append(testCase.args.Headers, [2]string{"Cookie", callbackCookie.String()})
-			testCase.args.Path = testEndpoint.Path + "?state=" + testing2.State + "&code=" + testCase.code
-			testCase.args.Method = testEndpoint.Method
-
-			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
+			runSignIn(t, testCase.code, testCase.args, callback_endpoint_config.WithRequireOrganization(true))
 		})
 	}
 }
@@ -472,39 +444,7 @@ func TestEndpoint_AllowedOrganizations(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			testEndpoint, err := New[*testing2.ProviderClaims](
-				defaultPath,
-				callback_endpoint_config.WithAllowedOrganizations(testCase.allowedOrganizations),
-			)
-			if err != nil {
-				t.Fatalf("new endpoint: %v", err)
-			}
-
-			if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
-				t.Fatalf("test endpoint initialize: %v", err)
-			}
-
-			testEndpoint.popOauthFlow = func(_ context.Context, _ string, _ *sql.DB) (*oauth_flow.Flow, error) {
-				expiresAt := time.Now().Add(time.Hour)
-				return &oauth_flow.Flow{
-					Id:          testing2.OauthFlowId,
-					RedirectUrl: testing2.RedirectUrl,
-					State:       testing2.State,
-					ExpiresAt:   &expiresAt,
-				}, nil
-			}
-
-			mux := &muxPkg.Mux{}
-			mux.Add(testEndpoint.Endpoint.Endpoint)
-			httpServer := httptest.NewServer(mux)
-			defer httpServer.Close()
-
-			callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId}
-			testCase.args.Headers = append(testCase.args.Headers, [2]string{"Cookie", callbackCookie.String()})
-			testCase.args.Path = testEndpoint.Path + "?state=" + testing2.State + "&code=" + testCase.code
-			testCase.args.Method = testEndpoint.Method
-
-			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
+			runSignIn(t, testCase.code, testCase.args, callback_endpoint_config.WithAllowedOrganizations(testCase.allowedOrganizations))
 		})
 	}
 }

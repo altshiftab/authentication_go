@@ -34,7 +34,7 @@ import (
 // It is intentionally NOT parallel: it swaps the global slog default to capture
 // output. Non-parallel tests run to completion before the package's parallel
 // tests resume, so this does not race with TestEndpoint's parallel subtests.
-func TestProviderErrorLogging(t *testing.T) {
+func TestProviderErrorLogging(t *testing.T) { //nolint:paralleltest // Swaps the global slog default; see above.
 	const errorDescription = "User declined to consent to access the app."
 
 	var logBuffer bytes.Buffer
@@ -81,15 +81,18 @@ func TestProviderErrorLogging(t *testing.T) {
 		"&error=access_denied&error_subcode=cancel" +
 		"&error_description=" + url.QueryEscape(errorDescription)
 
-	request, err := http.NewRequest(http.MethodGet, requestUrl, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestUrl, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	request.AddCookie(&http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId})
+	request.AddCookie(&http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId}) //nolint:gosec // G124: a request cookie; its attributes are never sent.
 
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("client do: %v", err)
+	}
+	if response == nil {
+		t.Fatal("nil response")
 	}
 	defer func() { _ = response.Body.Close() }()
 
@@ -271,7 +274,7 @@ func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hash
 	httpServer := httptest.NewServer(mux)
 	defer httpServer.Close()
 
-	callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId}
+	callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId} //nolint:gosec // G124: a request cookie; its attributes are never sent.
 	muxTesting.TestArgs(
 		t,
 		&muxTesting.Args{

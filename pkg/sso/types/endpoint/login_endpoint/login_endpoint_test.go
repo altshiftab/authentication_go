@@ -24,6 +24,12 @@ import (
 	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
+// Errors the tests' stand-ins fail with.
+var (
+	errTestCodeVerifier = errors.New("code verifier error")
+	errTestState        = errors.New("state error")
+)
+
 const (
 	defaultPath         = "/login"
 	defaultCallbackPath = "/callback"
@@ -107,7 +113,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			codeVerifierErr: errors.New("code verifier error"),
+			codeVerifierErr: errTestCodeVerifier,
 		},
 		{
 			name: "empty code verifier",
@@ -123,7 +129,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			stateErr: errors.New("state error"),
+			stateErr: errTestState,
 		},
 		{
 			name: "empty state",
@@ -200,7 +206,6 @@ func TestEndpoint(t *testing.T) {
 			requestUrl.RawQuery = url.Values{"redirect": {"https://" + testing2.Domain}}.Encode()
 
 			muxTesting.TestArgs(t, testCase.args, requestUrl.String())
-
 		})
 	}
 }

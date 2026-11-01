@@ -8,6 +8,7 @@ import (
 	webauthnTransport "github.com/altshiftab/utils_go/pkg/webauthn/transport"
 )
 
+//nolint:gosec // G101: a WebAuthn attestation fixture, not a credential.
 const attestationCredentialJson = `{
 	  "id": "AsDY91_hSwTVT8owaP_hfw",
 	  "rawId": "AsDY91_hSwTVT8owaP_hfw",

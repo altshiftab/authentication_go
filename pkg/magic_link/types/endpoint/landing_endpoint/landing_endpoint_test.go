@@ -6,14 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	magicLinkTesting "github.com/altshiftab/authentication_go/pkg/magic_link/testing"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/landing_endpoint/landing_endpoint_config"
-	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
@@ -21,12 +19,7 @@ import (
 	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
 )
 
-var signer *altshiftCryptoEddsa.Method
-
-func TestMain(m *testing.M) {
-	signer = magicLinkTesting.NewSigner()
-	os.Exit(m.Run())
-}
+var signer = magicLinkTesting.NewSigner()
 
 func mintToken(t *testing.T, payload map[string]any) string {
 	t.Helper()
@@ -248,9 +241,16 @@ func TestEndpoint_ContentSecurityPolicyHeader(t *testing.T) {
 	tokenString := mintToken(t, defaultPayload(magicLinkTesting.ValidEmail, "csp-header"))
 	rawQuery := url.Values{"token": {tokenString}}.Encode()
 
-	resp, err := http.Get(httpServer.URL + testEndpoint.Path + "?" + rawQuery)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, httpServer.URL+testEndpoint.Path+"?"+rawQuery, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("http get: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("nil response")
 	}
 	defer resp.Body.Close()
 
@@ -282,9 +282,16 @@ func TestEndpoint_FormBodyContainsAction(t *testing.T) {
 	tokenString := mintToken(t, defaultPayload(magicLinkTesting.ValidEmail, "body-action"))
 	rawQuery := url.Values{"token": {tokenString}}.Encode()
 
-	resp, err := http.Get(httpServer.URL + testEndpoint.Path + "?" + rawQuery)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, httpServer.URL+testEndpoint.Path+"?"+rawQuery, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("http get: %v", err)
+	}
+	if resp == nil {
+		t.Fatal("nil response")
 	}
 	defer resp.Body.Close()
 

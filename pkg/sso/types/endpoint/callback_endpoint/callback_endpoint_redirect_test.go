@@ -50,15 +50,18 @@ func doCallback(t *testing.T, server *httptest.Server, endpoint *Endpoint[*testi
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
-	request, err := http.NewRequest(http.MethodGet, server.URL+defaultPath+"?"+rawQuery, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+defaultPath+"?"+rawQuery, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	request.AddCookie(&http.Cookie{Name: endpoint.CallbackCookieName, Value: testing2.OauthFlowId})
+	request.AddCookie(&http.Cookie{Name: endpoint.CallbackCookieName, Value: testing2.OauthFlowId}) //nolint:gosec // G124: a request cookie; its attributes are never sent.
 
 	response, err := client.Do(request)
 	if err != nil {
 		t.Fatalf("client do: %v", err)
+	}
+	if response == nil {
+		t.Fatal("nil response")
 	}
 	return response
 }

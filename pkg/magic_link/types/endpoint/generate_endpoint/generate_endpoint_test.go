@@ -17,7 +17,11 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 )
 
-const defaultPath = "/api/login/magic/generate"
+// Errors the tests' stand-ins fail with.
+var (
+	errTestMailSender = errors.New("smtp boom")
+	errTestAccount    = errors.New("db boom")
+)
 
 func TestEndpoint(t *testing.T) {
 	t.Parallel()
@@ -95,7 +99,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			mailSenderErr:     errors.New("smtp boom"),
+			mailSenderErr:     errTestMailSender,
 			nonce:             magicLinkTesting.DefaultNonce,
 			expectSentAttempt: true,
 		},
@@ -142,7 +146,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:    http.StatusInternalServerError,
 				ExpectedProblemDetail: &problem_detail.Detail{},
 			},
-			accountErr: errors.New("db boom"),
+			accountErr: errTestAccount,
 		},
 	}
 
@@ -327,7 +331,7 @@ func TestEndpoint_Initialize(t *testing.T) {
 					func(_ context.Context, _ string) (bool, error) { return true, nil },
 				),
 			)
-			var sender *magicLinkTesting.FakeMailSender = tt.args.mailSender
+			var sender = tt.args.mailSender
 			var signerArg = signer
 			if tt.args.signer == nil {
 				signerArg = nil

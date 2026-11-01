@@ -48,7 +48,7 @@ func newTestEndpoint(t *testing.T, options ...problem_detail_endpoint_config.Opt
 func get(t *testing.T, serverURL, accept string) *http.Response {
 	t.Helper()
 
-	request, err := http.NewRequest(http.MethodGet, serverURL+defaultPath, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, serverURL+defaultPath, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -59,6 +59,9 @@ func get(t *testing.T, serverURL, accept string) *http.Response {
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("client do: %v", err)
+	}
+	if response == nil {
+		t.Fatal("nil response")
 	}
 	return response
 }

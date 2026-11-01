@@ -24,7 +24,7 @@ func TestEndpoint(t *testing.T) {
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	request, err := http.NewRequest(http.MethodGet, server.URL+DefaultType, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+DefaultType, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -33,6 +33,9 @@ func TestEndpoint(t *testing.T) {
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatalf("client do: %v", err)
+	}
+	if response == nil {
+		t.Fatal("nil response")
 	}
 	defer func() { _ = response.Body.Close() }()
 

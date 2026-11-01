@@ -39,6 +39,11 @@ import (
 	altshiftTestingCmp "github.com/altshiftab/utils_go/pkg/testing/cmp"
 )
 
+// Errors the tests' stand-ins fail with.
+var (
+	errTestDb = errors.New("db error")
+)
+
 var defaultAuthenticationParser request_parser.RequestParser[any]
 
 var db *sql.DB
@@ -176,7 +181,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedProblemDetail:     &problem_detail.Detail{},
 				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
 			},
-			dbErr: errors.New("db error"),
+			dbErr: errTestDb,
 		},
 		{
 			// 401 rather than 400: a client is sent to sign in again on 401, and on nothing else.
@@ -228,7 +233,7 @@ func TestEndpoint(t *testing.T) {
 				ExpectedStatusCode:        http.StatusNoContent,
 				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
 			},
-			dbErr: errors.New("db error"),
+			dbErr: errTestDb,
 		},
 		{
 			name: "nil db authentication",
@@ -440,7 +445,6 @@ func TestEndpoint(t *testing.T) {
 			muxTesting.TestArgs(t, testCase.args, httpServer.URL)
 		})
 	}
-
 }
 
 func TestInitialize(t *testing.T) {
@@ -547,6 +551,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := New(tt.args.options...)
 			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
