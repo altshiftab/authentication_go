@@ -121,7 +121,7 @@ func makeBodyProcessor(domain string) processorPkg.Processor[*ParsedBodyInput, *
 				parts := domain_parts.New(hostname)
 				if parts == nil || parts.RegisteredDomain != domain {
 					return nil, &response_error.ResponseError{
-						ClientError: altshiftErrors.NewWithTrace(fmt.Errorf("disallowed redirect hostname: %q", hostname)),
+						ClientError: altshiftErrors.NewWithTrace(errDisallowedRedirectHostname, hostname),
 						ProblemDetail: problem_detail.New(
 							http.StatusUnprocessableEntity,
 							problem_detail_config.WithDetail("The redirect URL hostname is not allowed."),
@@ -140,6 +140,9 @@ func makeBodyProcessor(domain string) processorPkg.Processor[*ParsedBodyInput, *
 // errUnreadableAddress stands in for an address error's own, whose message quotes what was typed:
 // only its type is kept, beside this.
 var errUnreadableAddress = stdErrors.New("the address could not be read")
+
+// errDisallowedRedirectHostname is a redirect outside the registered domain; the hostname is its value.
+var errDisallowedRedirectHostname = stdErrors.New("disallowed redirect hostname")
 
 type Endpoint struct {
 	*initialization_endpoint.Endpoint

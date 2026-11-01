@@ -14,6 +14,7 @@ import (
 type Cookie = http.Cookie
 
 func makeSessionCookie(value string, expiresAt time.Time, name string, domain string, sameSite http.SameSite) *http.Cookie {
+	//nolint:gosec // G124: Secure and HttpOnly are fixed; SameSite is the caller's, Lax unless configured.
 	return &http.Cookie{
 		Name:     name,
 		Value:    value,

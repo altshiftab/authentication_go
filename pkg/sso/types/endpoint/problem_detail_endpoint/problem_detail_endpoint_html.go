@@ -15,15 +15,17 @@ import (
 // DefaultBackLabel is the default text for the back-to-sign-in control.
 const DefaultBackLabel = "Back to sign in"
 
+const applicationType = "application"
+
 // htmlMediaRanges lists text/html last so wildcard (*/*) and explicit
 // application/problem+json clients still receive a serialized problem document,
 // while browsers (which list text/html explicitly and at the highest priority)
 // receive HTML.
 var htmlMediaRanges = []*altshiftHttpTypes.ServerMediaRange{
-	{Type: "application", Subtype: "problem+json"},
-	{Type: "application", Subtype: "json"},
-	{Type: "application", Subtype: "problem+xml"},
-	{Type: "application", Subtype: "xml"},
+	{Type: applicationType, Subtype: "problem+json"},
+	{Type: applicationType, Subtype: "json"},
+	{Type: applicationType, Subtype: "problem+xml"},
+	{Type: applicationType, Subtype: "xml"},
 	{Type: "text", Subtype: "plain"},
 	{Type: "text", Subtype: "html"},
 }

@@ -50,7 +50,7 @@ func MakeCookieExplicit(
 	authenticationMethods []string,
 	exp, nbf time.Time,
 ) string {
-	if utils.IsNil(signer) {
+	if signer == nil || utils.IsNil(signer) {
 		panic(altshiftErrors.NewWithTrace(nil_error.New("signer")))
 	}
 

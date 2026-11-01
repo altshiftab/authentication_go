@@ -29,6 +29,7 @@ import (
 	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
 	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
+	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
 	muxRespnose "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
@@ -70,8 +71,10 @@ const (
 	OauthEmptyEmailAddressCode      = "empty_email_address"
 
 	JwksPath  = "/.well-known/jwks.json"
-	TokenPath = "/oauth/token"
+	TokenPath = "/oauth/token" //nolint:gosec // G101: a path, not a credential.
 )
+
+const contentTypeHeaderName = "Content-Type"
 
 var (
 	testAccount = &accountPkg.Account{Id: AccountId, EmailAddress: EmailAddress, Roles: []string{Role}}
@@ -177,6 +180,9 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 	if err != nil {
 		panic(fmt.Errorf("ecdsa new: %w", err))
 	}
+	if idTokenMethod == nil {
+		panic(nil_error.New("id token method"))
+	}
 
 	ecKey, err := ec.NewFromPublicKey(&ecdsaKey.PublicKey)
 	if err != nil {
@@ -210,7 +216,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 				return &muxRespnose.Response{
 					Headers: []*muxRespnose.HeaderEntry{
 						{
-							Name:  "Content-Type",
+							Name:  contentTypeHeaderName,
 							Value: "application/json; charset=UTF-8",
 						},
 						{
@@ -238,7 +244,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 					return &muxRespnose.Response{
 						Headers: []*muxRespnose.HeaderEntry{
 							{
-								Name:  "Content-Type",
+								Name:  contentTypeHeaderName,
 								Value: "application/json; charset=UTF-8",
 							},
 						},
@@ -313,7 +319,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 				}
 
 				return &muxRespnose.Response{
-					Headers: []*muxRespnose.HeaderEntry{{Name: "Content-Type", Value: "application/json"}},
+					Headers: []*muxRespnose.HeaderEntry{{Name: contentTypeHeaderName, Value: "application/json"}},
 					Body:    responseData,
 				}, nil
 			},
@@ -321,10 +327,11 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 	)
 	auxHttpServer := httptest.NewServer(auxMux)
 
-	jwksURL, err := url.Parse(auxHttpServer.URL + JwksPath)
+	auxUrl, err := url.Parse(auxHttpServer.URL)
 	if err != nil {
 		panic(fmt.Errorf("url parse: %w", err))
 	}
+	jwksURL := auxUrl.JoinPath(JwksPath)
 	keyHandler, err := key_handler.New(jwksURL)
 	if err != nil {
 		panic(fmt.Errorf("key handler new: %w", err))
@@ -334,7 +341,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 		ClientID:     "test-client",
 		ClientSecret: "test-secret",
 		Endpoint: altshiftOauth2Endpoint.Endpoint{
-			TokenURL: auxHttpServer.URL + TokenPath,
+			TokenURL: auxUrl.JoinPath(TokenPath).String(),
 		},
 		Scopes: []string{"openid", "email"},
 	}

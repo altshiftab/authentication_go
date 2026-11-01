@@ -21,7 +21,6 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/query_extractor"
 	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
-	muxResponseError "github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
@@ -59,7 +58,7 @@ func (e *Endpoint) Initialize(authorizerRequestParser *authorizer_request_parser
 
 		authenticationId := sessionToken.AuthenticationId
 		if authenticationId == "" {
-			return nil, &muxResponseError.ResponseError{
+			return nil, &response_error.ResponseError{
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("Missing authentication id in the session token."),
@@ -70,7 +69,7 @@ func (e *Endpoint) Initialize(authorizerRequestParser *authorizer_request_parser
 		dbCtx, dbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbCtxCancel()
 		if err := e.updateAuthenticationWithEnded(dbCtx, authenticationId, db); err != nil {
-			return nil, &muxResponseError.ResponseError{
+			return nil, &response_error.ResponseError{
 				ServerError: altshiftErrors.New(fmt.Errorf("update authentication with ended: %w", err), authenticationId),
 			}
 		}
