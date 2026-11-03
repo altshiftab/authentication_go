@@ -485,9 +485,9 @@ func TestRecordMintRemembersTheAssertionForAsLongAsItCanBePresented(t *testing.T
 		t.Fatalf("the spent assertion was not remembered: %v", err)
 	}
 
-	// How long an assertion arriving now could still be presented for: its "exp" may sit a whole
-	// lifetime out, and the leeway carries it further.
-	presentableFor := assertion.Lifetime + assertion.Leeway
+	// How long an assertion arriving now could still be presented for: its "exp" may sit a lifetime
+	// and a leeway out, and it is accepted for a leeway past that.
+	presentableFor := assertion.Lifetime + 2*assertion.Leeway
 
 	// The database's clock and this one are not the same clock, and neither is stopped between the
 	// insert and the read. A few seconds keeps the test about retention rather than about that.
@@ -568,6 +568,42 @@ func TestRevokeForAccount(t *testing.T) {
 	}
 	if _, err := cruder.Create(t.Context(), accountId, revokedKey, "the revoked key again", nil); err == nil {
 		t.Error("A revoked key was registered again.")
+	}
+}
+
+/*
+ * A revoke landing between the mint's read of the key and its record: the key the endpoint holds
+ * still says it is live, and the record must not make a sign-in for it all the same.
+ */
+func TestRecordMintAfterARevokeItDidNotSee(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+	cruder := &Cruder{Database: db}
+	accountId := createAccount(t, db, "api-key-revoke-race@example.com")
+	key := createKey(t, db, accountId, "revoked under the mint")
+
+	if err := cruder.RevokeForAccount(t.Context(), accountId, key.Id); err != nil {
+		t.Fatalf("revoke for account: %v", err)
+	}
+	if key.Revoked() {
+		t.Fatal("The key read before the revoke says it is revoked.")
+	}
+
+	if _, err := cruder.RecordMint(t.Context(), key, "assertion-1", nil); !errors.Is(err, ErrKeyRevoked) {
+		t.Errorf("got %v, want ErrKeyRevoked", err)
+	}
+
+	var signIns int
+	if err := db.QueryRowContext(
+		t.Context(),
+		`SELECT count(*) FROM api_key_authentication WHERE api_key = $1;`,
+		key.Id,
+	).Scan(&signIns); err != nil {
+		t.Fatalf("count sign-ins: %v", err)
+	}
+	if signIns != 0 {
+		t.Errorf("A revoked key was given %d sign-in(s).", signIns)
 	}
 }
 

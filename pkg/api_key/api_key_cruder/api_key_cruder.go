@@ -37,6 +37,9 @@ import (
 // already stored against its key, which is what a replay looks like from here.
 var ErrAssertionAlreadyUsed = errors.New("the assertion has already been used")
 
+// ErrKeyRevoked says the key was revoked by the time its mint was recorded, after the caller read it.
+var ErrKeyRevoked = errors.New("the key has been revoked")
+
 /*
  * AuthenticationLifetime is how long the sign-in row a key mints under is kept alive, extended at
  * every mint.
@@ -61,10 +64,13 @@ const AuthenticationLifetime = 30 * 24 * time.Hour
  * already passed. Stored under that, the row would be swept by the very statement below that tidies
  * up after it, and the assertion could be presented again for as long as it remained acceptable.
  *
+ * The "exp" of an assertion arriving now may sit as far out as Lifetime and Leeway together, and the
+ * assertion stays acceptable for a further Leeway past it -- hence Leeway twice.
+ *
  * Derived from the window rather than written down, so that lengthening how long an assertion may
  * be presented for cannot quietly leave it remembered for less.
  */
-const AssertionRetention = assertion.Lifetime + assertion.Leeway
+const AssertionRetention = assertion.Lifetime + 2*assertion.Leeway
 
 // gosec reads the name and takes anything called a key for a credential. What is selected here is
 // the opposite: the columns of a key row that are not the key material.
@@ -362,7 +368,10 @@ func (c *Cruder) SelectForMint(ctx context.Context, keyId string) (*Key, error) 
  * RecordMint remembers the assertion, keeps the key's sign-in alive, and returns that sign-in with
  * the account it belongs to, ready for a token to be minted from.
  *
- * One transaction, and the order matters. The assertion is stored first, so that a replay fails
+ * One transaction, and the order matters. The key's row is locked first and its revocation read
+ * again: the caller read the key before verifying the assertion, and a revoke committed since must
+ * not be followed by a sign-in made for the key it revoked, while one arriving after waits for this
+ * transaction and ends the sign-in it leaves. The assertion is stored next, so that a replay fails
  * before anything else is touched; the sign-in is then reused where there is a live one for this
  * key, and made where there is not, which is what keeps one key to one entry in the account's
  * activity however often it mints.
@@ -408,6 +417,21 @@ func (c *Cruder) RecordMint(
 			)
 		}
 	}()
+
+	// FOR UPDATE rather than FOR SHARE: the transaction updates the row further down, and two mints
+	// of one key each holding a share lock would deadlock upgrading it.
+	lockRow := transaction.QueryRowContext(ctx, `SELECT revoked_at FROM api_key WHERE id = $1 FOR UPDATE;`, key.Id)
+	if lockRow == nil {
+		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
+	}
+
+	var revokedAt *time.Time
+	if err := lockRow.Scan(&revokedAt); err != nil {
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan (lock key): %w", err), key.Id)
+	}
+	if revokedAt != nil {
+		return nil, ErrKeyRevoked
+	}
 
 	if _, err := transaction.ExecContext(
 		ctx,

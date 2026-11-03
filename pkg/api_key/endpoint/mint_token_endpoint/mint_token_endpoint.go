@@ -117,6 +117,14 @@ func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.D
 				ClientError: err,
 			}
 		}
+		revoked := func() *response_error.ResponseError {
+			return &response_error.ResponseError{
+				ProblemDetail: problem_detail.New(
+					http.StatusForbidden,
+					problem_detail_config.WithDetail("The key has been revoked."),
+				),
+			}
+		}
 
 		keyId, err := assertion.Subject(assertionString)
 		if err != nil {
@@ -156,12 +164,7 @@ func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.D
 		// about. A client that cannot tell "revoked" from "the signature is wrong" cannot tell a
 		// person what to do about it either.
 		if key.Revoked() {
-			return nil, &response_error.ResponseError{
-				ProblemDetail: problem_detail.New(
-					http.StatusForbidden,
-					problem_detail_config.WithDetail("The key has been revoked."),
-				),
-			}
+			return nil, revoked()
 		}
 
 		if key.Expired(now) {
@@ -183,6 +186,10 @@ func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.D
 			wrappedErr := altshiftErrors.New(fmt.Errorf("api key cruder record mint: %w", err), keyId)
 			// The assertion has been presented before. Said as itself rather than as "not valid":
 			// a client retrying a request must know to make a new assertion rather than to give up.
+			// Revoked between the read above and the record: answered as if it had been seen there.
+			if errors.Is(err, api_key_cruder.ErrKeyRevoked) {
+				return nil, revoked()
+			}
 			if errors.Is(err, api_key_cruder.ErrAssertionAlreadyUsed) {
 				return nil, &response_error.ResponseError{
 					ProblemDetail: problem_detail.New(
