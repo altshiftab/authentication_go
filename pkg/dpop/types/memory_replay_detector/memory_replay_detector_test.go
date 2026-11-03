@@ -3,6 +3,7 @@ package memory_replay_detector
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"testing"
 	"time"
 
@@ -172,7 +173,7 @@ func TestDetector_MaxEntries(t *testing.T) {
 
 			detector := &Detector{MaxEntries: 3}
 			for i := range 3 {
-				if _, err := detector.Observe(t.Context(), "a", fmt.Sprintf("%d", i), now, now.Add(testCase.expiresIn)); err != nil {
+				if _, err := detector.Observe(t.Context(), "a", strconv.Itoa(i), now, now.Add(testCase.expiresIn)); err != nil {
 					t.Fatalf("%s: observe %d: %v", testCase.name, i, err)
 				}
 			}
