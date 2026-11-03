@@ -19,12 +19,15 @@ import (
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/customer"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
+	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
+	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/mint_token_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
 	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claim_strings"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
@@ -1192,6 +1195,142 @@ func TestManager_MintToken_Audience(t *testing.T) {
 			}
 			if !slices.Equal(payload.Audience, claim_strings.ClaimStrings{testCase.wantAudience}) {
 				t.Errorf("%s: audience %v, want [%s]", testCase.name, payload.Audience, testCase.wantAudience)
+			}
+		})
+	}
+}
+
+/*
+ * A token minted against a key carries what the account is -- its roles and its tenant -- and says
+ * how it was come by, and the authorizers go by that saying: one built for browser sessions refuses
+ * it, and one built for API keys takes it. Asserted on tokens MintToken made rather than on ones put
+ * together by hand, so that what the authorizers are held to is what a mint hands out; and with a
+ * browser's token beside it, which each authorizer answers the other way, so that a refusal can only
+ * have been the "amr".
+ */
+func TestManager_MintToken_AuthenticationMethod(t *testing.T) {
+	t.Parallel()
+
+	signer := newTestSigner(t)
+
+	authentication := newAuthentication()
+	authentication.Account = newAccountWithCustomer()
+	authentication.Account.Roles = []string{"admin", "user"}
+
+	m := newManager(t, signer, &stubs{account: authentication.Account, authentication: authentication})
+	t.Cleanup(func() { _ = m.Db.Close() })
+
+	browserAuthorizer, err := authorizer_request_parser.New(signer, testIssuer, testCookieDomain)
+	if err != nil {
+		t.Fatalf("authorizer request parser new (browser): %v", err)
+	}
+
+	apiKeyAuthorizer, err := authorizer_request_parser.New(
+		signer,
+		testIssuer,
+		testCookieDomain,
+		authorizer_request_parser_config.WithTokenExtractor(token_header_extractor.New()),
+		authorizer_request_parser_config.WithAuthenticationMethods(authentication_method.ApiKey),
+	)
+	if err != nil {
+		t.Fatalf("authorizer request parser new (api key): %v", err)
+	}
+
+	minted := map[string]string{}
+	for _, authenticationMethod := range []string{authentication_method.ApiKey, authentication_method.Sso} {
+		sessionToken, sessionTokenString, respErr := m.MintToken(authentication, authenticationMethod, 15*time.Minute)
+		if respErr != nil {
+			t.Fatalf("mint token (%s): %+v", authenticationMethod, respErr)
+		}
+
+		if sessionToken == nil || sessionToken.Claims == nil {
+			t.Fatalf("mint token (%s): no token came back", authenticationMethod)
+		}
+
+		// The claims a consumer decides from: what the account is now, and how the token was come by.
+		claims := sessionToken.Claims
+		if !slices.Equal(claims.Roles, authentication.Account.Roles) {
+			t.Errorf("%s: roles %v, want %v", authenticationMethod, claims.Roles, authentication.Account.Roles)
+		}
+		if !slices.Equal(claims.AuthenticationMethods, []string{authenticationMethod}) {
+			t.Errorf("%s: amr %v, want [%s]", authenticationMethod, claims.AuthenticationMethods, authenticationMethod)
+		}
+		if claims.AuthorizedParty != "cust-id:Acme" {
+			t.Errorf("%s: azp %q, want the account's customer", authenticationMethod, claims.AuthorizedParty)
+		}
+
+		minted[authenticationMethod] = sessionTokenString
+	}
+
+	testCases := []struct {
+		name                 string
+		authenticationMethod string
+		authorizer           *authorizer_request_parser.Parser
+		header               string
+		value                func(string) string
+		accepted             bool
+	}{
+		{
+			name:                 "a key's token, by an authorizer built for browser sessions",
+			authenticationMethod: authentication_method.ApiKey,
+			authorizer:           browserAuthorizer,
+			header:               "Cookie",
+			value:                func(token string) string { return "session=" + token },
+		},
+		{
+			name:                 "a key's token, by an authorizer built for api keys",
+			authenticationMethod: authentication_method.ApiKey,
+			authorizer:           apiKeyAuthorizer,
+			header:               "Authorization",
+			value:                func(token string) string { return "Bearer " + token },
+			accepted:             true,
+		},
+		{
+			name:                 "a browser's token, by an authorizer built for browser sessions",
+			authenticationMethod: authentication_method.Sso,
+			authorizer:           browserAuthorizer,
+			header:               "Cookie",
+			value:                func(token string) string { return "session=" + token },
+			accepted:             true,
+		},
+		{
+			name:                 "a browser's token, by an authorizer built for api keys",
+			authenticationMethod: authentication_method.Sso,
+			authorizer:           apiKeyAuthorizer,
+			header:               "Authorization",
+			value:                func(token string) string { return "Bearer " + token },
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			if err != nil {
+				t.Fatalf("new request: %v", err)
+			}
+			request.Header.Set(testCase.header, testCase.value(minted[testCase.authenticationMethod]))
+
+			sessionToken, responseError := testCase.authorizer.Parse(request)
+			if !testCase.accepted {
+				if responseError == nil {
+					t.Fatal("The token was accepted by an authorizer that does not take its method.")
+				}
+				if problemDetail := responseError.ProblemDetail; problemDetail == nil || problemDetail.Status != http.StatusUnauthorized {
+					t.Errorf("got %+v, want a 401", responseError)
+				}
+				return
+			}
+
+			if responseError != nil {
+				t.Fatalf("parse: %+v", responseError)
+			}
+			if sessionToken.SubjectId != authentication.Account.Id {
+				t.Errorf("subject: got %q, want %q", sessionToken.SubjectId, authentication.Account.Id)
+			}
+			if !slices.Equal(sessionToken.Roles, authentication.Account.Roles) {
+				t.Errorf("roles: got %v, want %v", sessionToken.Roles, authentication.Account.Roles)
 			}
 		})
 	}
