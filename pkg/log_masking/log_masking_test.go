@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altshiftab/authentication_go/pkg/api_key/endpoint/mint_token_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/generate_endpoint"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/landing_endpoint"
@@ -32,6 +33,7 @@ var (
 	_ log_masking.Masker = (*landing_endpoint.Endpoint)(nil)
 	_ log_masking.Masker = (*generate_endpoint.Endpoint)(nil)
 	_ log_masking.Masker = (*id_token_endpoint.Endpoint[*provider_claims.GoogleClaims])(nil)
+	_ log_masking.Masker = (*mint_token_endpoint.Endpoint)(nil)
 )
 
 type fakeMasker struct {
@@ -315,5 +317,66 @@ func TestApply_Rendering(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The mint endpoint answers with a session token, good for its lifetime to whoever reads it: the
+// served response is written out without it, and with what says what kind of token it was.
+func TestMintTokenEndpoint_Masks(t *testing.T) {
+	t.Parallel()
+
+	const accessToken = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl" //nolint:gosec // A made-up token.
+
+	endpoint := mint_token_endpoint.New()
+
+	if urlParams := endpoint.MaskedUrlParams(); len(urlParams) != 0 {
+		t.Errorf("masked url params %+v, want none", urlParams)
+	}
+	if headers := endpoint.MaskedHeaders(); len(headers) != 0 {
+		t.Errorf("masked headers %+v, want none", headers)
+	}
+
+	render := func(t *testing.T, extractor *http_context_extractor.Extractor) string {
+		t.Helper()
+
+		httpContext := &altshiftHttpTypes.HttpContext{
+			Request: httptest.NewRequestWithContext(
+				t.Context(), http.MethodPost, "https://login.example.test"+endpoint.Path, nil,
+			),
+			Response: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {"application/json"}},
+			},
+			ResponseBody: []byte(`{"access_token":"` + accessToken + `","token_type":"Bearer","expires_in":900}`),
+		}
+
+		record := slog.NewRecord(time.Now(), slog.LevelDebug, "An HTTP response was served.", 0)
+		if err := extractor.Handle(altshiftHttpContext.WithHttpContextValue(t.Context(), httpContext), &record); err != nil {
+			t.Fatalf("handle: %v", err)
+		}
+
+		var written strings.Builder
+		record.Attrs(func(attr slog.Attr) bool {
+			written.WriteString(attr.String())
+			return true
+		})
+		return written.String()
+	}
+
+	// Without the masks the body is written out, so the test is looking where it is.
+	if unmasked := render(t, http_context_extractor.New()); !strings.Contains(unmasked, accessToken) {
+		t.Fatalf("the token is not written out even without the masks: %s", unmasked)
+	}
+
+	extractor := http_context_extractor.New()
+	if err := log_masking.Apply(extractor, endpoint); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	written := render(t, extractor)
+	if strings.Contains(written, accessToken) {
+		t.Errorf("the token is written out: %s", written)
+	}
+	if !strings.Contains(written, "Bearer") {
+		t.Errorf("the token type is not written out: %s", written)
 	}
 }

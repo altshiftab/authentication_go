@@ -25,6 +25,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/api_key/assertion"
 	"github.com/altshiftab/authentication_go/pkg/api_key/public_key"
 	apiKeyTypes "github.com/altshiftab/authentication_go/pkg/api_key/types"
+	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
@@ -44,8 +45,10 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	muxUtils "github.com/altshiftab/utils_go/pkg/http/mux/utils"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
+	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
+	altshiftOauth2 "github.com/altshiftab/utils_go/pkg/oauth2"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 	"github.com/altshiftab/utils_go/pkg/schema"
 )
@@ -251,10 +254,34 @@ func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.D
 				{Name: "Cache-Control", Value: "no-store", Overwrite: true},
 			},
 			Body: data,
+			// Never compressed, whatever its size: a token is what a compression side channel reads.
+			SensitiveBody: true,
 		}, nil
 	}
 
 	e.Initialized = true
+	return nil
+}
+
+// MaskedUrlParams is empty: the assertion is sent in a header, and nothing in the URL.
+func (e *Endpoint) MaskedUrlParams() []*schema.Url {
+	return nil
+}
+
+// MaskedBodyFields is the token the endpoint answers with, which the log would otherwise write out
+// whole: a session token good for its lifetime to whoever reads the log. Named as the OAuth token
+// endpoint names its own, the answer being in the same shape.
+func (e *Endpoint) MaskedBodyFields() (*log_masking.BodyFields, error) {
+	return &log_masking.BodyFields{
+		Response: []*http_context_extractor_config.MaskedBodyFields{
+			{Url: &schema.Url{Path: e.Path}, Fields: altshiftOauth2.TokenResponseCredentialFields()},
+		},
+	}, nil
+}
+
+// MaskedHeaders is nothing: the log's own masking of a header already takes the assertion's
+// signature, without which what is left of it cannot be presented again.
+func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader {
 	return nil
 }
 
