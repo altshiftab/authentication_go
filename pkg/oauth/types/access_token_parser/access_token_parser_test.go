@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altshiftab/authentication_go/pkg/oauth/types/access_token"
+	"github.com/altshiftab/authentication_go/pkg/oauth/types/access_token_parser/access_token_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
@@ -327,5 +328,132 @@ func TestNew(t *testing.T) {
 	}
 	if _, err := New(nil, issuer, resource, scope, resourceMetadataUrl); err == nil {
 		t.Error("made a parser without a verifier")
+	}
+}
+
+func TestNew_AllowedSubjects(t *testing.T) {
+	t.Parallel()
+
+	verifier := &altshiftCryptoEddsa.Method{PublicKey: newMethod(t).PublicKey}
+
+	testCases := []struct {
+		name    string
+		options []access_token_parser_config.Option
+		wantErr bool
+	}{
+		{name: "no option"},
+		{name: "one account", options: []access_token_parser_config.Option{access_token_parser_config.WithAllowedSubjects(accountId)}},
+		{name: "the option without accounts", options: []access_token_parser_config.Option{access_token_parser_config.WithAllowedSubjects()}, wantErr: true},
+		{name: "an empty account", options: []access_token_parser_config.Option{access_token_parser_config.WithAllowedSubjects(accountId, "")}, wantErr: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			parser, err := New(verifier, issuer, resource, scope, resourceMetadataUrl, testCase.options...)
+			if testCase.wantErr {
+				if err == nil {
+					t.Errorf("%s: no error", testCase.name)
+				}
+				return
+			}
+			if err != nil || parser == nil {
+				t.Errorf("%s: %v", testCase.name, err)
+			}
+		})
+	}
+}
+
+func TestParser_Parse_AllowedSubjects(t *testing.T) {
+	t.Parallel()
+
+	const otherAccountId = "0b4a3e62-6e3e-4bb4-9a0b-2f6c1d3a9e10"
+
+	method := newMethod(t)
+	verifier := &altshiftCryptoEddsa.Method{PublicKey: method.PublicKey}
+	asOther := func(token *access_token.Token) { token.Subject = otherAccountId }
+
+	testCases := []struct {
+		name       string
+		allowed    []string
+		mutate     func(*access_token.Token)
+		wantStatus int
+	}{
+		{name: "the allowed account", allowed: []string{accountId}},
+		{name: "another account", allowed: []string{accountId}, mutate: asOther, wantStatus: http.StatusForbidden},
+		{name: "another account, one of two allowed", allowed: []string{accountId, otherAccountId}, mutate: asOther},
+		{name: "another account, no accounts named", mutate: asOther},
+		{
+			// The scope is checked first: the refusal is the one a client can act on.
+			name:    "another account, without the scope",
+			allowed: []string{accountId},
+			mutate: func(token *access_token.Token) {
+				token.Subject = otherAccountId
+				token.Scopes = []string{"other"}
+			},
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var options []access_token_parser_config.Option
+			if testCase.allowed != nil {
+				options = append(options, access_token_parser_config.WithAllowedSubjects(testCase.allowed...))
+			}
+			parser, err := New(verifier, issuer, resource, scope, resourceMetadataUrl, options...)
+			if err != nil || parser == nil {
+				t.Fatalf("%s: new: %v", testCase.name, err)
+			}
+
+			token, responseError := parser.Parse(request(t, "Bearer "+mint(t, method, testCase.mutate)))
+			if testCase.wantStatus == 0 {
+				if responseError != nil {
+					t.Fatalf("%s: refused: %+v", testCase.name, responseError.ProblemDetail)
+				}
+				if token == nil {
+					t.Fatalf("%s: no token", testCase.name)
+				}
+				return
+			}
+
+			if responseError == nil || responseError.ProblemDetail == nil {
+				t.Fatalf("%s: accepted: %+v", testCase.name, token)
+			}
+			if responseError.ProblemDetail.Status != testCase.wantStatus {
+				t.Errorf("%s: status %d, want %d", testCase.name, responseError.ProblemDetail.Status, testCase.wantStatus)
+			}
+			if responseError.ClientError == nil {
+				t.Errorf("%s: no client error", testCase.name)
+			}
+		})
+	}
+}
+
+// Another account's refusal names no challenge, while a missing scope's does: only the scope is
+// something a client can get by asking again.
+func TestParser_Parse_AnotherAccountHasNoChallenge(t *testing.T) {
+	t.Parallel()
+
+	method := newMethod(t)
+	parser, err := New(
+		&altshiftCryptoEddsa.Method{PublicKey: method.PublicKey}, issuer, resource, scope, resourceMetadataUrl,
+		access_token_parser_config.WithAllowedSubjects(accountId),
+	)
+	if err != nil || parser == nil {
+		t.Fatalf("new: %v", err)
+	}
+
+	_, responseError := parser.Parse(request(t, "Bearer "+mint(t, method, func(token *access_token.Token) { token.Subject = "someone-else" })))
+	if responseError == nil {
+		t.Fatal("accepted")
+	}
+	for _, header := range responseError.Headers {
+		if header != nil && header.Name == "WWW-Authenticate" {
+			t.Errorf("challenge %q", header.Value)
+		}
 	}
 }

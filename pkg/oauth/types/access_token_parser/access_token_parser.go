@@ -9,9 +9,11 @@ package access_token_parser
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/altshiftab/authentication_go/pkg/oauth/types/access_token"
+	"github.com/altshiftab/authentication_go/pkg/oauth/types/access_token_parser/access_token_parser_config"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
@@ -33,6 +35,8 @@ type Parser struct {
 	authenticator       *authenticator.Authenticator
 	requiredScope       string
 	resourceMetadataUrl string
+	// allowedSubjects are the accounts whose tokens are taken; nil takes any.
+	allowedSubjects []string
 }
 
 // New is a parser of tokens the issuer signed with the verifier's key for the resource. A token
@@ -44,6 +48,7 @@ func New(
 	resource string,
 	requiredScope string,
 	resourceMetadataUrl string,
+	options ...access_token_parser_config.Option,
 ) (*Parser, error) {
 	if verifier == nil || utils.IsNil(verifier) {
 		return nil, altshiftErrors.NewWithTrace(nil_error.New("verifier"))
@@ -53,6 +58,16 @@ func New(
 	} {
 		if value == "" {
 			return nil, altshiftErrors.NewWithTrace(empty_error.New(name))
+		}
+	}
+
+	config := access_token_parser_config.New(options...)
+	if config.AllowedSubjects != nil {
+		if len(config.AllowedSubjects) == 0 {
+			return nil, altshiftErrors.NewWithTrace(empty_error.New("allowed subjects"))
+		}
+		if slices.Contains(config.AllowedSubjects, "") {
+			return nil, altshiftErrors.NewWithTrace(empty_error.New("allowed subject"))
 		}
 	}
 
@@ -85,6 +100,7 @@ func New(
 		),
 		requiredScope:       requiredScope,
 		resourceMetadataUrl: resourceMetadataUrl,
+		allowedSubjects:     config.AllowedSubjects,
 	}, nil
 }
 
@@ -160,6 +176,21 @@ func (p *Parser) Parse(request *http.Request) (*access_token.Token, *response_er
 			http.StatusForbidden, "insufficient_scope", "The access token does not grant the scope required.",
 			altshiftErrors.NewWithTrace(fmt.Errorf("%w: scope", altshiftErrors.ErrVerificationError)),
 		)
+	}
+
+	// Another account's token is valid, and is for this resource, but not for this resource's data.
+	// It is answered without a challenge: signing in again as the same account would not change it.
+	if p.allowedSubjects != nil && !slices.Contains(p.allowedSubjects, token.Subject) {
+		return nil, &response_error.ResponseError{
+			ClientError: altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: access token subject", altshiftErrors.ErrVerificationError),
+				token.Subject,
+			),
+			ProblemDetail: problem_detail.New(
+				http.StatusForbidden,
+				problem_detail_config.WithDetail("The account is not allowed here."),
+			),
+		}
 	}
 
 	return token, nil
