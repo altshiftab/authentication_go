@@ -27,8 +27,10 @@ import (
 	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
+	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claim_strings"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/session_claims"
@@ -1331,6 +1333,114 @@ func TestManager_MintToken_AuthenticationMethod(t *testing.T) {
 			}
 			if !slices.Equal(sessionToken.Roles, authentication.Account.Roles) {
 				t.Errorf("roles: got %v, want %v", sessionToken.Roles, authentication.Account.Roles)
+			}
+		})
+	}
+}
+
+func TestClientMetadataFromContext(t *testing.T) {
+	t.Parallel()
+
+	makeRequest := func(remoteAddr string, headers map[string]string) *http.Request {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/", nil)
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		request.RemoteAddr = remoteAddr
+		for name, value := range headers {
+			request.Header.Set(name, value)
+		}
+		return request
+	}
+
+	testCases := []struct {
+		name string
+		// No HTTP context on the context at all, as for a caller that is not a request.
+		noHttpContext bool
+		request       *http.Request
+		want          *authenticationPkg.ClientMetadata
+	}{
+		{
+			name:          "no http context",
+			noHttpContext: true,
+		},
+		{
+			name: "no request",
+		},
+		{
+			name:    "the load balancer's client address",
+			request: makeRequest("10.0.0.1:443", map[string]string{"X-Client-Ip-Address": "203.0.113.5", "User-Agent": "test-agent"}),
+			want:    &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", UserAgent: "test-agent"},
+		},
+		{
+			name: "the load balancer's client address over a forged X-Forwarded-For",
+			request: makeRequest("10.0.0.1:443", map[string]string{
+				"X-Client-Ip-Address": "203.0.113.5",
+				"X-Forwarded-For":     "198.51.100.9, 203.0.113.5, 10.0.0.1",
+			}),
+			want: &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5"},
+		},
+		{
+			name:    "X-Forwarded-For without the load balancer's address",
+			request: makeRequest("10.0.0.1:443", map[string]string{"X-Forwarded-For": " 198.51.100.9 , 10.0.0.1"}),
+			want:    &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.9"},
+		},
+		{
+			name: "X-Forwarded-For when the load balancer's address is not one",
+			request: makeRequest("10.0.0.1:443", map[string]string{
+				"X-Client-Ip-Address": "not-an-address",
+				"X-Forwarded-For":     "198.51.100.9",
+			}),
+			want: &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.9"},
+		},
+		{
+			name:    "RemoteAddr without any header",
+			request: makeRequest("203.0.113.7:51234", nil),
+			want:    &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
+		},
+		{
+			name:    "RemoteAddr when X-Forwarded-For is not an address",
+			request: makeRequest("203.0.113.7:51234", map[string]string{"X-Forwarded-For": "unknown"}),
+			want:    &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
+		},
+		{
+			name:    "no address at all",
+			request: makeRequest("", nil),
+			want:    &authenticationPkg.ClientMetadata{},
+		},
+		{
+			name: "geo headers",
+			request: makeRequest("10.0.0.1:443", map[string]string{
+				"X-Client-Ip-Address":           "203.0.113.5",
+				"X-Client-Geo-City-Name":        "Stockholm",
+				"X-Client-Geo-Country-Iso-Code": "SE",
+			}),
+			want: &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCity: "Stockholm", IpAddressCountry: "Sweden"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			if !testCase.noHttpContext {
+				ctx = context.WithValue(
+					ctx,
+					muxPkg.MuxHttpContextContextKey,
+					&altshiftHttpTypes.HttpContext{Request: testCase.request},
+				)
+			}
+
+			got := ClientMetadataFromContext(ctx)
+			if (got == nil) != (testCase.want == nil) {
+				t.Fatalf("got %+v, want %+v", got, testCase.want)
+			}
+			if got == nil {
+				return
+			}
+			if *got != *testCase.want {
+				t.Errorf("got %+v, want %+v", *got, *testCase.want)
 			}
 		})
 	}

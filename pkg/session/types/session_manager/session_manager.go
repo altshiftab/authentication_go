@@ -69,10 +69,14 @@ type Manager struct {
 
 // ClientMetadataFromContext derives the client information persisted with an
 // authentication from the HTTP context carried on ctx. The client IP is taken
-// from the first X-Forwarded-For entry (the real client behind the GCP load
-// balancer), falling back to RemoteAddr; geo fields come from the load
-// balancer's X-Client-Geo-* headers. It returns nil when no HTTP context is
-// present (e.g. non-HTTP callers), which InsertAuthentication stores as NULLs.
+// from X-Client-Ip-Address, which the load balancer sets from the connection it
+// accepted and replaces if the client sent one, so it cannot be forged. Without
+// it, the first X-Forwarded-For entry is used, and then RemoteAddr: behind the
+// load balancer X-Forwarded-For begins with whatever the client chose to send,
+// so it is a fallback for a service reached some other way, not the answer.
+// Geo fields come from the load balancer's X-Client-Geo-* headers. It returns
+// nil when no HTTP context is present (e.g. non-HTTP callers), which
+// InsertAuthentication stores as NULLs.
 //
 // Exported because an authentication is not only written here: a token minted against a key the
 // account registered records where it was asked for the same way a sign-in does, and reading the
@@ -91,7 +95,9 @@ func ClientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMet
 	metadata := &authenticationPkg.ClientMetadata{UserAgent: request.UserAgent()}
 
 	if header := request.Header; header != nil {
-		if xForwardedFor := header.Get("X-Forwarded-For"); xForwardedFor != "" {
+		if clientIpAddress := strings.TrimSpace(header.Get("X-Client-Ip-Address")); net.ParseIP(clientIpAddress) != nil {
+			metadata.IpAddress = clientIpAddress
+		} else if xForwardedFor := header.Get("X-Forwarded-For"); xForwardedFor != "" {
 			client := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
 			if net.ParseIP(client) != nil {
 				metadata.IpAddress = client
