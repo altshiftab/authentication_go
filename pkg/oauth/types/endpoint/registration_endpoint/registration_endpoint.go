@@ -10,6 +10,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -56,6 +57,9 @@ type ErrorResponse struct {
 
 type Endpoint struct {
 	*initialization_endpoint.Endpoint
+
+	// Log is what the endpoint's audit lines carry beside their own fields; see New.
+	Log *log_options.Config
 }
 
 func (e *Endpoint) Initialize(registrar *client_registrar.Registrar) error {
@@ -69,15 +73,15 @@ func (e *Endpoint) Initialize(registrar *client_registrar.Registrar) error {
 		// Metadata it does not understand is ignored, as the RFC has it.
 		var metadata client_registrar.Metadata
 		if err := json.Unmarshal(body, &metadata); err != nil {
-			return refuse(ctx, "invalid_client_metadata", "The body is not client metadata.")
+			return e.refuse(ctx, "invalid_client_metadata", "The body is not client metadata.")
 		}
 
 		registered, issuedAt, err := registrar.Register(&metadata)
 		if refused, ok := errors.AsType[*client_registrar.RefusalError](err); ok && refused != nil {
 			if errors.Is(refused.Sentinel, client_registrar.ErrInvalidRedirectUri) {
-				return refuse(ctx, "invalid_redirect_uri", "A redirect URI is not one a client may register: "+refused.Reason+".")
+				return e.refuse(ctx, "invalid_redirect_uri", "A redirect URI is not one a client may register: "+refused.Reason+".")
 			}
-			return refuse(ctx, "invalid_client_metadata", "The client metadata is refused: "+refused.Reason+".")
+			return e.refuse(ctx, "invalid_client_metadata", "The client metadata is refused: "+refused.Reason+".")
 		}
 		switch {
 		case err != nil:
@@ -92,8 +96,10 @@ func (e *Endpoint) Initialize(registrar *client_registrar.Registrar) error {
 				hosts = append(hosts, u.Host)
 			}
 		}
-		slog.InfoContext(ctx, "An OAuth client registered.",
-			slog.Group("oauth", slog.String("client_name", registered.Name), slog.Any("redirect_hosts", hosts)))
+		slog.InfoContext(ctx, "An OAuth client registered.", e.Log.Attrs(
+			e.Log.Event([]string{log_options.CategoryIam}, []string{log_options.TypeCreation}, "oauth_client_registration", log_options.OutcomeSuccess, ""),
+			slog.Group("oauth", slog.String("client_name", registered.Name), slog.Any("redirect_hosts", hosts)),
+		)...)
 
 		out, err := json.Marshal(&Response{
 			ClientId:                registered.Id,
@@ -115,9 +121,11 @@ func (e *Endpoint) Initialize(registrar *client_registrar.Registrar) error {
 	return nil
 }
 
-func refuse(ctx context.Context, errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
-	slog.InfoContext(ctx, "An OAuth client registration was refused.",
-		slog.Group("oauth", slog.String("error", errorCode), slog.String("error_description", description)))
+func (e *Endpoint) refuse(ctx context.Context, errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
+	slog.InfoContext(ctx, "An OAuth client registration was refused.", e.Log.Attrs(
+		e.Log.Event([]string{log_options.CategoryIam}, []string{log_options.TypeCreation}, "oauth_client_registration", log_options.OutcomeFailure, ""),
+		slog.Group("oauth", slog.String("error", errorCode), slog.String("error_description", description)),
+	)...)
 
 	body, err := json.Marshal(&ErrorResponse{Error: errorCode, ErrorDescription: description})
 	if err != nil {
@@ -150,8 +158,11 @@ func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader
 	return nil
 }
 
-func New() *Endpoint {
+// New makes the endpoint. Its options are log_options' own, there being nothing else about the
+// endpoint to configure before it is initialized.
+func New(options ...log_options.Option) *Endpoint {
 	return &Endpoint{
+		Log: log_options.New(options...),
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{
 				Path:      DefaultPath,

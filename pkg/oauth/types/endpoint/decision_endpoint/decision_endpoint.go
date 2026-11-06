@@ -10,6 +10,7 @@ package decision_endpoint
 import (
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -46,6 +47,9 @@ const (
 type Endpoint struct {
 	*initialization_endpoint.Endpoint
 	now func() time.Time
+
+	// Log is what the endpoint's audit lines carry beside their own fields; see New.
+	Log *log_options.Config
 }
 
 func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_token.Token], issuer string, store oauth.Store) error {
@@ -108,7 +112,10 @@ func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_t
 
 		switch decision {
 		case "deny":
-			slog.InfoContext(ctx, "An OAuth client was refused authorization.", logAttributes...)
+			slog.InfoContext(ctx, "An OAuth client was refused authorization.", e.Log.Attrs(append(
+				[]any{e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_authorization_decision", log_options.OutcomeFailure, "")},
+				logAttributes...,
+			)...)...)
 			return redirect(authorizationRequest.RedirectUri, issuer, map[string]string{
 				"error": "access_denied", "error_description": "The user denied the request.", "state": authorizationRequest.State,
 			})
@@ -133,7 +140,10 @@ func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_t
 			return nil, &response_error.ResponseError{ServerError: altshiftErrors.New(fmt.Errorf("store insert authorization code: %w", err))}
 		}
 
-		slog.InfoContext(ctx, "An OAuth client was authorized.", logAttributes...)
+		slog.InfoContext(ctx, "An OAuth client was authorized.", e.Log.Attrs(append(
+			[]any{e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_authorization_decision", log_options.OutcomeSuccess, "")},
+			logAttributes...,
+		)...)...)
 
 		return redirect(authorizationRequest.RedirectUri, issuer, map[string]string{"code": code, "state": authorizationRequest.State})
 	}
@@ -181,8 +191,11 @@ func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader
 	return []*http_context_extractor_config.MaskedHeader{{Url: &schema.Url{Path: e.Path}, Headers: []string{"Location"}}}
 }
 
-func New() *Endpoint {
+// New makes the endpoint. Its options are log_options' own, there being nothing else about the
+// endpoint to configure before it is initialized.
+func New(options ...log_options.Option) *Endpoint {
 	return &Endpoint{
+		Log: log_options.New(options...),
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{
 				Path:      DefaultPath,

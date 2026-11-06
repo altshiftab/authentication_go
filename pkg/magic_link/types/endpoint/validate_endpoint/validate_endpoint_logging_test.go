@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
+	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/validate_endpoint/validate_endpoint_config"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -44,25 +46,49 @@ func TestSignInLogging(t *testing.T) {
 		t.Fatalf("pii hasher new: %v", err)
 	}
 
-	// The address is named by its keyed hash, and not at all without a hasher; in neither case is it
-	// written out.
+	// The address is named by its keyed hash, and not at all without a hasher; it is written out only
+	// when the service asks for it. What the service adds to the event group lands inside it.
 	testCases := []struct {
-		name     string
-		hasher   *pii_hasher.Hasher
-		wantHash string
+		name        string
+		options     []log_options.Option
+		wantHash    string
+		wantEmail   bool
+		wantDataset string
 	}{
-		{name: "with a hasher", hasher: hasher, wantHash: hasher.HashEmailAddress(magicLinkTesting.ValidEmail)},
+		{
+			name:     "with a hasher",
+			options:  []log_options.Option{log_options.WithEmailAddressHasher(hasher)},
+			wantHash: hasher.HashEmailAddress(magicLinkTesting.ValidEmail),
+		},
 		{name: "without a hasher"},
+		{
+			name:      "with the address asked for",
+			options:   []log_options.Option{log_options.WithEmailAddressHasher(hasher), log_options.WithLogEmailAddress(true)},
+			wantHash:  hasher.HashEmailAddress(magicLinkTesting.ValidEmail),
+			wantEmail: true,
+		},
+		{
+			name:        "with the service's own event attributes",
+			options:     []log_options.Option{log_options.WithEventAttrs(slog.String("dataset", "service.audit"))},
+			wantDataset: "service.audit",
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			testSignInLogging(t, testCase.name, testCase.hasher, testCase.wantHash)
+			testSignInLogging(t, testCase.name, testCase.options, testCase.wantHash, testCase.wantEmail, testCase.wantDataset)
 		})
 	}
 }
 
-func testSignInLogging(t *testing.T, name string, hasher *pii_hasher.Hasher, wantHash string) {
+func testSignInLogging(
+	t *testing.T,
+	name string,
+	options []log_options.Option,
+	wantHash string,
+	wantEmail bool,
+	wantDataset string,
+) {
 	t.Helper()
 
 	var logBuffer bytes.Buffer
@@ -78,8 +104,7 @@ func testSignInLogging(t *testing.T, name string, hasher *pii_hasher.Hasher, wan
 	slog.SetDefault(logger)
 	defer slog.SetDefault(previousLogger)
 
-	testEndpoint := New()
-	testEndpoint.EmailAddressHasher = hasher
+	testEndpoint := New(validate_endpoint_config.WithLog(options...))
 	if err := testEndpoint.Initialize(signer, sessionManager, redirectUrl); err != nil {
 		t.Fatalf("test endpoint initialize: %v", err)
 	}
@@ -125,19 +150,35 @@ func testSignInLogging(t *testing.T, name string, hasher *pii_hasher.Hasher, wan
 		t.Errorf("got %d %q log entries, want 1", count, signInMessage)
 	}
 
-	if found := logMaskingTesting.FindAddress(logBuffer.String(), magicLinkTesting.ValidEmail); len(found) != 0 {
-		t.Errorf("%s: the address is in the log %q: %s", name, found, logBuffer.String())
+	if !wantEmail {
+		if found := logMaskingTesting.FindAddress(logBuffer.String(), magicLinkTesting.ValidEmail); len(found) != 0 {
+			t.Errorf("%s: the address is in the log %q: %s", name, found, logBuffer.String())
+		}
 	}
 
 	entry := findLogEntry(t, &logBuffer, signInMessage)
 
+	event, _ := entry["event"].(map[string]any)
+	if action, _ := event["action"].(string); action != "magic_link_sign_in" {
+		t.Errorf("%s: event.action = %v, want magic_link_sign_in", name, event["action"])
+	}
+	if outcome, _ := event["outcome"].(string); outcome != "success" {
+		t.Errorf("%s: event.outcome = %v, want success", name, event["outcome"])
+	}
+	if dataset, _ := event["dataset"].(string); dataset != wantDataset {
+		t.Errorf("%s: event.dataset = %q, want %q", name, dataset, wantDataset)
+	}
+
 	user, _ := entry["user"].(map[string]any)
-	if wantHash == "" {
+	if wantHash == "" && !wantEmail {
 		if user != nil {
 			t.Errorf("%s: user %v in the log entry, want none", name, user)
 		}
 	} else if hash, _ := user["hash"].(string); hash != wantHash {
 		t.Errorf("%s: user.hash = %v, want %s", name, user["hash"], wantHash)
+	}
+	if email, _ := user["email"].(string); wantEmail != (email == magicLinkTesting.ValidEmail) {
+		t.Errorf("%s: user.email = %q, want the address: %t", name, email, wantEmail)
 	}
 
 	// A magic link states nothing about how the user authenticated, so the line must not carry the

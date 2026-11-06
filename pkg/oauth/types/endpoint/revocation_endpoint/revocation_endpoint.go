@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -42,6 +43,9 @@ type ErrorResponse struct {
 
 type Endpoint struct {
 	*initialization_endpoint.Endpoint
+
+	// Log is what the endpoint's audit lines carry beside their own fields; see New.
+	Log *log_options.Config
 }
 
 func (e *Endpoint) Initialize(store oauth.Store) error {
@@ -54,16 +58,16 @@ func (e *Endpoint) Initialize(store oauth.Store) error {
 
 		form, err := url.ParseQuery(string(body))
 		if err != nil {
-			return refuse(ctx, "invalid_request", "The request body is no form.")
+			return e.refuse(ctx, "invalid_request", "The request body is no form.")
 		}
 		for name, values := range form {
 			if len(values) > 1 {
-				return refuse(ctx, "invalid_request", fmt.Sprintf("The %s parameter is repeated.", name))
+				return e.refuse(ctx, "invalid_request", fmt.Sprintf("The %s parameter is repeated.", name))
 			}
 		}
 		token := form.Get("token")
 		if token == "" {
-			return refuse(ctx, "invalid_request", "A token is required.")
+			return e.refuse(ctx, "invalid_request", "A token is required.")
 		}
 
 		// The hint is only that: a refresh token is looked for whatever it says, and anything else
@@ -72,8 +76,12 @@ func (e *Endpoint) Initialize(store oauth.Store) error {
 			return nil, &response_error.ResponseError{ServerError: altshiftErrors.New(fmt.Errorf("store revoke refresh token: %w", err))}
 		}
 
-		slog.InfoContext(ctx, "An OAuth token was revoked.",
-			slog.Group("oauth", slog.String("client_id", form.Get("client_id")), slog.String("token_type_hint", form.Get("token_type_hint"))))
+		// Unknown rather than success: the store answers alike for a token it held and one it never
+		// did, as RFC 7009 has the endpoint answer alike, so the line cannot say a token was ended.
+		slog.InfoContext(ctx, "An OAuth token was revoked.", e.Log.Attrs(
+			e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeEnd}, "oauth_token_revocation", log_options.OutcomeUnknown, ""),
+			slog.Group("oauth", slog.String("client_id", form.Get("client_id")), slog.String("token_type_hint", form.Get("token_type_hint"))),
+		)...)
 
 		// 200 as RFC 7009 has it, which the mux would answer as 204 for there being no body.
 		return &muxResponse.Response{StatusCode: http.StatusOK, Headers: headers()}, nil
@@ -84,9 +92,11 @@ func (e *Endpoint) Initialize(store oauth.Store) error {
 	return nil
 }
 
-func refuse(ctx context.Context, errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
-	slog.InfoContext(ctx, "An OAuth revocation request was refused.",
-		slog.Group("oauth", slog.String("error", errorCode), slog.String("error_description", description)))
+func (e *Endpoint) refuse(ctx context.Context, errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
+	slog.InfoContext(ctx, "An OAuth revocation request was refused.", e.Log.Attrs(
+		e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeEnd}, "oauth_token_revocation", log_options.OutcomeFailure, ""),
+		slog.Group("oauth", slog.String("error", errorCode), slog.String("error_description", description)),
+	)...)
 
 	body, err := json.Marshal(&ErrorResponse{Error: errorCode, ErrorDescription: description})
 	if err != nil {
@@ -123,8 +133,11 @@ func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader
 	return nil
 }
 
-func New() *Endpoint {
+// New makes the endpoint. Its options are log_options' own, there being nothing else about the
+// endpoint to configure before it is initialized.
+func New(options ...log_options.Option) *Endpoint {
 	return &Endpoint{
+		Log: log_options.New(options...),
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{
 				Path:      DefaultPath,

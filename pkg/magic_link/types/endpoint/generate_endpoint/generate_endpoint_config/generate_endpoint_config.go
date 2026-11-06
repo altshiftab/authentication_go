@@ -3,6 +3,7 @@ package generate_endpoint_config
 import (
 	"context"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"net/mail"
 	"net/url"
 	"time"
@@ -46,12 +47,17 @@ type Config struct {
 	ReplyToAddresses   []*mail.Address
 	AccountChecker     AccountChecker
 	MinResponseLatency time.Duration
+
+	// Log is what the endpoint's audit lines say about the person they concern, and what the
+	// service adds to them; see log_options. Empty by default: an id, and no address at all.
+	Log *log_options.Config
 }
 
 type Option func(*Config)
 
 func New(options ...Option) *Config {
 	config := &Config{
+		Log:            log_options.New(),
 		Path:           DefaultPath,
 		LinkExpiration: DefaultLinkExpiration,
 		SubjectBuilder: DefaultSubjectBuilder,
@@ -117,5 +123,13 @@ func WithAccountChecker(accountChecker AccountChecker) Option {
 func WithMinResponseLatency(minResponseLatency time.Duration) Option {
 	return func(config *Config) {
 		config.MinResponseLatency = minResponseLatency
+	}
+}
+
+// WithLog sets what the endpoint's audit lines say about the person they concern, and what the
+// service adds to them, from log_options' options.
+func WithLog(options ...log_options.Option) Option {
+	return func(config *Config) {
+		config.Log = log_options.New(options...)
 	}
 }

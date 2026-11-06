@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	stdErrors "errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -40,7 +41,6 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/numeric_date"
 	altshiftJwtToken "github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/token"
-	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	altshiftMail "github.com/altshiftab/utils_go/pkg/mail"
 	"github.com/altshiftab/utils_go/pkg/mail/types/message"
 	"github.com/altshiftab/utils_go/pkg/mail/types/message/message_config"
@@ -153,9 +153,9 @@ type Endpoint struct {
 	AccountChecker     generate_endpoint_config.AccountChecker
 	MinResponseLatency time.Duration
 
-	// EmailAddressHasher names the address a link is asked for by its keyed hash, on the request.
-	// With none, the log names no address at all.
-	EmailAddressHasher *pii_hasher.Hasher
+	// Log is what the request log says about the address a link is asked for; see
+	// generate_endpoint_config.WithLog.
+	Log *log_options.Config
 
 	makeNonce func() string
 }
@@ -232,12 +232,14 @@ func (e *Endpoint) Initialize(
 
 		toAddress := body.EmailAddress
 
-		// By its hash, for an address with an account and one without alike: how many links are
-		// asked for, for which addresses and from where, is what shows the endpoint being abused,
-		// and an address with no account is still one someone may ask about.
+		// For an address with an account and one without alike: how many links are asked for, for
+		// which addresses and from where, is what shows the endpoint being abused, and an address
+		// with no account is still one someone may ask about. Named as the service says, and marked
+		// unverified: it is whatever the request typed, which nothing has yet shown to be anyone's.
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
-			if emailAddressHash := e.EmailAddressHasher.HashEmailAddress(toAddress.Address); emailAddressHash != "" {
-				httpContext.User = &schema.User{Hash: emailAddressHash}
+			if user := e.Log.User("", toAddress.Address); user.Hash != "" || user.Email != "" {
+				user.Unverified = true
+				httpContext.User = user
 			}
 		}
 
@@ -369,6 +371,7 @@ func New(options ...generate_endpoint_config.Option) *Endpoint {
 		MessageBuilder:     config.MessageBuilder,
 		AccountChecker:     config.AccountChecker,
 		MinResponseLatency: config.MinResponseLatency,
+		Log:                config.Log,
 		makeNonce:          config.MakeNonce,
 	}
 }

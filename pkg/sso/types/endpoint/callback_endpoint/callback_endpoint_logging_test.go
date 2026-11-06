@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	logMaskingTesting "github.com/altshiftab/authentication_go/pkg/log_masking/testing"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
+	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/callback_endpoint/callback_endpoint_config"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -126,9 +129,14 @@ func TestProviderErrorLogging(t *testing.T) { //nolint:paralleltest // Swaps the
 		t.Errorf("level = %q, want %q", level, "WARN")
 	}
 
+	// A failed authentication by the identity provider, as the success is the same action with the
+	// outcome success: one query over the action answers both.
 	event := childObject(t, logEntry, "event")
-	if got := event["action"]; got != "log_oauth_error" {
-		t.Errorf("event.action = %v, want %q", got, "log_oauth_error")
+	if got := event["action"]; got != "identity_provider_authentication" {
+		t.Errorf("event.action = %v, want %q", got, "identity_provider_authentication")
+	}
+	if got := event["outcome"]; got != "failure" {
+		t.Errorf("event.outcome = %v, want %q", got, "failure")
 	}
 	if got := event["reason"]; got != "An OAuth error occurred." {
 		t.Errorf("event.reason = %v, want %q", got, "An OAuth error occurred.")
@@ -247,11 +255,13 @@ func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hash
 	slog.SetDefault(logger)
 	defer slog.SetDefault(previousLogger)
 
-	testEndpoint, err := New[*testing2.ProviderClaims](defaultPath)
+	testEndpoint, err := New[*testing2.ProviderClaims](
+		defaultPath,
+		callback_endpoint_config.WithLog(log_options.WithEmailAddressHasher(hasher)),
+	)
 	if err != nil {
 		t.Fatalf("new endpoint: %v", err)
 	}
-	testEndpoint.EmailAddressHasher = hasher
 	if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
 		t.Fatalf("test endpoint initialize: %v", err)
 	}
@@ -291,6 +301,17 @@ func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hash
 	}
 
 	entry := findLogEntry(t, &logBuffer, "An identity provider authenticated a user.")
+
+	// The provider's authentication, which the endpoint's own checks can still refuse after it.
+	wantEvent := map[string]any{
+		"category": []any{"authentication"},
+		"type":     []any{"start"},
+		"action":   "identity_provider_authentication",
+		"outcome":  "success",
+	}
+	if event, _ := entry["event"].(map[string]any); !reflect.DeepEqual(event, wantEvent) {
+		t.Errorf("%s: event %v, want %v", name, event, wantEvent)
+	}
 
 	user, _ := entry["user"].(map[string]any)
 	if user == nil {

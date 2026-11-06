@@ -17,6 +17,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"time"
@@ -78,6 +79,10 @@ type Endpoint struct {
 
 	// TokenLifetime is how long the minted token lasts.
 	TokenLifetime time.Duration
+
+	// Log is what the mint's line and the request log say about the account that minted, and what
+	// the service adds to them; see New.
+	Log *log_options.Config
 }
 
 func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.DB, audience string) error {
@@ -220,19 +225,23 @@ func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.D
 		}
 
 		// Who minted, attached to the HTTP context so it reaches the request log and correlates
-		// with the rest of the service by the same fields.
+		// with the rest of the service by the same fields. By the account's id; the address only as
+		// the service says.
 		account := authentication.Account
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok &&
 			httpContext != nil && account != nil {
-			httpContext.User = &schema.User{Id: account.Id, Email: account.EmailAddress}
+			httpContext.User = e.Log.User(account.Id, account.EmailAddress)
 		}
 
 		if account != nil {
 			slog.InfoContext(
 				ctx,
 				"An API key minted a token.",
-				slog.Group("user", slog.String("id", account.Id), slog.String("email", account.EmailAddress)),
-				slog.Group("api_key", slog.String("id", key.Id), slog.String("name", key.Name)),
+				e.Log.Attrs(
+					e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "mint_token", log_options.OutcomeSuccess, ""),
+					slog.Group("user", e.Log.UserAttrs(account.Id, account.EmailAddress)...),
+					slog.Group("api_key", slog.String("id", key.Id), slog.String("name", key.Name)),
+				)...,
 			)
 		}
 
@@ -285,8 +294,11 @@ func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader
 	return nil
 }
 
-func New() *Endpoint {
+// New makes the endpoint. Its options are log_options' own, there being nothing else about the
+// endpoint to configure before it is initialized.
+func New(options ...log_options.Option) *Endpoint {
 	return &Endpoint{
+		Log: log_options.New(options...),
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{
 				Path:   DefaultPath,

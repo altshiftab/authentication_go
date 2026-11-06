@@ -12,6 +12,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -75,6 +76,9 @@ type Endpoint struct {
 	RefreshTokenLifetime time.Duration
 	GrantLifetime        time.Duration
 	now                  func() time.Time
+
+	// Log is what the endpoint's audit lines carry beside their own fields; see New.
+	Log *log_options.Config
 }
 
 type issuer struct {
@@ -117,13 +121,13 @@ func (e *Endpoint) Initialize(
 
 		form, err := url.ParseQuery(string(body))
 		if err != nil {
-			return refuse(ctx, http.StatusBadRequest, "invalid_request", "The request body is no form.")
+			return e.refuse(ctx, http.StatusBadRequest, "invalid_request", "The request body is no form.")
 		}
 		// No parameter may be sent twice (RFC 6749 section 3.2): which of the two counts would be a
 		// guess.
 		for name, values := range form {
 			if len(values) > 1 {
-				return refuse(ctx, http.StatusBadRequest, "invalid_request", fmt.Sprintf("The %s parameter is repeated.", name))
+				return e.refuse(ctx, http.StatusBadRequest, "invalid_request", fmt.Sprintf("The %s parameter is repeated.", name))
 			}
 		}
 
@@ -133,9 +137,9 @@ func (e *Endpoint) Initialize(
 		case "refresh_token":
 			return e.refresh(ctx, server, form)
 		case "":
-			return refuse(ctx, http.StatusBadRequest, "invalid_request", "A grant type is required.")
+			return e.refuse(ctx, http.StatusBadRequest, "invalid_request", "A grant type is required.")
 		default:
-			return refuse(ctx, http.StatusBadRequest, "unsupported_grant_type", "The grant type is not supported.")
+			return e.refuse(ctx, http.StatusBadRequest, "unsupported_grant_type", "The grant type is not supported.")
 		}
 	}
 
@@ -147,12 +151,12 @@ func (e *Endpoint) Initialize(
 func (e *Endpoint) redeemCode(ctx context.Context, server *issuer, form url.Values) (*muxResponse.Response, *response_error.ResponseError) {
 	code, clientId, verifier := form.Get("code"), form.Get("client_id"), form.Get("code_verifier")
 	if code == "" || clientId == "" || verifier == "" {
-		return refuse(ctx, http.StatusBadRequest, "invalid_request", "A code, client id and code verifier are required.")
+		return e.refuse(ctx, http.StatusBadRequest, "invalid_request", "A code, client id and code verifier are required.")
 	}
 
 	authorizationCode, err := server.store.PopAuthorizationCode(ctx, oauth.HashSecret(code))
 	if errors.Is(err, oauth.ErrNotFound) {
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code is invalid or was redeemed already.")
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code is invalid or was redeemed already.")
 	}
 	if err != nil {
 		return nil, &response_error.ResponseError{ServerError: altshiftErrors.New(fmt.Errorf("store pop authorization code: %w", err))}
@@ -166,16 +170,16 @@ func (e *Endpoint) redeemCode(ctx context.Context, server *issuer, form url.Valu
 	now := e.now()
 	switch redirectUri := form.Get("redirect_uri"); {
 	case !now.Before(authorizationCode.ExpiresAt):
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code has expired.")
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code has expired.")
 	case authorizationCode.ClientId != clientId:
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code was issued to another client.")
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code was issued to another client.")
 	case redirectUri != "" && authorizationCode.RedirectUri != redirectUri:
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The redirect URI is not the one the code was sent to.")
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The redirect URI is not the one the code was sent to.")
 	case !pkce.ValidVerifier(verifier) || !pkce.MatchesS256(verifier, authorizationCode.CodeChallenge):
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code verifier does not match the challenge.")
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The code verifier does not match the challenge.")
 	}
 	if resource := form.Get("resource"); resource != "" && resource != authorizationCode.Resource {
-		return refuse(ctx, http.StatusBadRequest, "invalid_target", "The resource is not the one the code was issued for.")
+		return e.refuse(ctx, http.StatusBadRequest, "invalid_target", "The resource is not the one the code was issued for.")
 	}
 
 	grant := &oauth.Grant{
@@ -186,7 +190,7 @@ func (e *Endpoint) redeemCode(ctx context.Context, server *issuer, form url.Valu
 		CreatedAt: now,
 	}
 	if err := e.checkGrant(ctx, server, grant); err != nil {
-		return answer(ctx, err)
+		return e.answer(ctx, err)
 	}
 
 	refreshToken, err := oauth.NewSecret()
@@ -198,7 +202,7 @@ func (e *Endpoint) redeemCode(ctx context.Context, server *issuer, form url.Valu
 	// having been made.
 	issued, err := e.mint(server, grant, scopes, refreshToken)
 	if err != nil {
-		return answer(ctx, err)
+		return e.answer(ctx, err)
 	}
 	grantId, err := server.store.InsertGrant(ctx, grant, oauth.HashSecret(refreshToken), now.Add(e.refreshTokenLifetime()))
 	if err != nil {
@@ -206,14 +210,14 @@ func (e *Endpoint) redeemCode(ctx context.Context, server *issuer, form url.Valu
 	}
 	grant.Id = grantId
 
-	logIssued(ctx, grant, scopes, "authorization_code")
+	e.logIssued(ctx, grant, scopes, "authorization_code")
 	return issued, nil
 }
 
 func (e *Endpoint) refresh(ctx context.Context, server *issuer, form url.Values) (*muxResponse.Response, *response_error.ResponseError) {
 	refreshToken, clientId := form.Get("refresh_token"), form.Get("client_id")
 	if refreshToken == "" || clientId == "" {
-		return refuse(ctx, http.StatusBadRequest, "invalid_request", "A refresh token and client id are required.")
+		return e.refuse(ctx, http.StatusBadRequest, "invalid_request", "A refresh token and client id are required.")
 	}
 
 	newRefreshToken, err := oauth.NewSecret()
@@ -271,18 +275,20 @@ func (e *Endpoint) refresh(ctx context.Context, server *issuer, form url.Values)
 	case errors.Is(err, oauth.ErrRefreshTokenReused):
 		// Only one of the two presenting it can be the client, and which cannot be told: the grant
 		// is revoked for both, and the client signs the user in again.
-		slog.WarnContext(ctx, "A refresh token was presented after it was spent; its grant is revoked.",
-			slog.Group("oauth", slog.String("client_id", clientId)))
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The refresh token was spent already.")
+		slog.WarnContext(ctx, "A refresh token was presented after it was spent; its grant is revoked.", e.Log.Attrs(
+			e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_refresh_token_reuse", log_options.OutcomeFailure, ""),
+			slog.Group("oauth", slog.String("client_id", clientId)),
+		)...)
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The refresh token was spent already.")
 	case errors.Is(err, oauth.ErrNotFound):
-		return refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The refresh token is invalid or has expired.")
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The refresh token is invalid or has expired.")
 	case err != nil:
-		return answer(ctx, err)
+		return e.answer(ctx, err)
 	case grant == nil || issued == nil:
 		return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("renewed grant"))}
 	}
 
-	logIssued(ctx, grant, scopes, "refresh_token")
+	e.logIssued(ctx, grant, scopes, "refresh_token")
 	return issued, nil
 }
 
@@ -299,9 +305,9 @@ func (r *refusal) Error() string {
 
 // answer is the response to an error in answering: a refusal is told to the client, anything else
 // is the server's.
-func answer(ctx context.Context, err error) (*muxResponse.Response, *response_error.ResponseError) {
+func (e *Endpoint) answer(ctx context.Context, err error) (*muxResponse.Response, *response_error.ResponseError) {
 	if refused, ok := errors.AsType[*refusal](err); ok && refused != nil {
-		return refuse(ctx, http.StatusBadRequest, refused.code, refused.description)
+		return e.refuse(ctx, http.StatusBadRequest, refused.code, refused.description)
 	}
 	return nil, &response_error.ResponseError{ServerError: err}
 }
@@ -368,8 +374,9 @@ func (e *Endpoint) mint(server *issuer, grant *oauth.Grant, scopes []string, ref
 	return &muxResponse.Response{Body: body, Headers: jsonHeaders(), SensitiveBody: true}, nil
 }
 
-func logIssued(ctx context.Context, grant *oauth.Grant, scopes []string, grantType string) {
-	slog.InfoContext(ctx, "An OAuth access token was issued.",
+func (e *Endpoint) logIssued(ctx context.Context, grant *oauth.Grant, scopes []string, grantType string) {
+	slog.InfoContext(ctx, "An OAuth access token was issued.", e.Log.Attrs(
+		e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_token_issuance", log_options.OutcomeSuccess, ""),
 		slog.Group("user", slog.String("id", grant.AccountId)),
 		slog.Group("oauth",
 			slog.String("grant_type", grantType),
@@ -377,14 +384,16 @@ func logIssued(ctx context.Context, grant *oauth.Grant, scopes []string, grantTy
 			slog.String("resource", grant.Resource),
 			slog.String("scope", strings.Join(scopes, " ")),
 		),
-	)
+	)...)
 }
 
 // refuse answers with a token error response, which a client reads as RFC 6749 has it rather than
 // as a problem detail.
-func refuse(ctx context.Context, status int, errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
-	slog.InfoContext(ctx, "An OAuth token request was refused.",
-		slog.Group("oauth", slog.String("error", errorCode), slog.String("error_description", description)))
+func (e *Endpoint) refuse(ctx context.Context, status int, errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
+	slog.InfoContext(ctx, "An OAuth token request was refused.", e.Log.Attrs(
+		e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_token_issuance", log_options.OutcomeFailure, ""),
+		slog.Group("oauth", slog.String("error", errorCode), slog.String("error_description", description)),
+	)...)
 
 	body, err := json.Marshal(&ErrorResponse{Error: errorCode, ErrorDescription: description})
 	if err != nil {
@@ -445,8 +454,11 @@ func (e *Endpoint) MaskedHeaders() []*http_context_extractor_config.MaskedHeader
 	return nil
 }
 
-func New() *Endpoint {
+// New makes the endpoint. Its options are log_options' own, there being nothing else about the
+// endpoint to configure before it is initialized.
+func New(options ...log_options.Option) *Endpoint {
 	return &Endpoint{
+		Log: log_options.New(options...),
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{
 				Path:      DefaultPath,

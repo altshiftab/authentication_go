@@ -8,9 +8,12 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
+	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/id_token_endpoint/id_token_endpoint_config"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -105,11 +108,13 @@ func TestSignInLogging(t *testing.T) {
 			slog.SetDefault(logger)
 			defer slog.SetDefault(previousLogger)
 
-			testEndpoint, err := New[*ssoTesting.ProviderClaims](defaultPath)
+			testEndpoint, err := New[*ssoTesting.ProviderClaims](
+				defaultPath,
+				id_token_endpoint_config.WithLog(log_options.WithEmailAddressHasher(hasher)),
+			)
 			if err != nil {
 				t.Fatalf("new endpoint: %v", err)
 			}
-			testEndpoint.EmailAddressHasher = hasher
 			if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
 				t.Fatalf("test endpoint initialize: %v", err)
 			}
@@ -169,6 +174,17 @@ func TestSignInLogging(t *testing.T) {
 			}
 
 			entry := findSignInLogEntry(t, &logBuffer)
+
+			// The same event as the authorization code flow's.
+			wantEvent := map[string]any{
+				"category": []any{"authentication"},
+				"type":     []any{"start"},
+				"action":   "identity_provider_authentication",
+				"outcome":  "success",
+			}
+			if event, _ := entry["event"].(map[string]any); !reflect.DeepEqual(event, wantEvent) {
+				t.Errorf("%s: event %v, want %v", testCase.name, event, wantEvent)
+			}
 
 			user, _ := entry["user"].(map[string]any)
 			if user == nil {

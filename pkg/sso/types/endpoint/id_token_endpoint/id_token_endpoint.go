@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -42,7 +43,6 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
-	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	"github.com/altshiftab/utils_go/pkg/schema"
 )
 
@@ -52,9 +52,9 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	// RequireOrganization refuses an account belonging to no organization; see the config.
 	RequireOrganization bool
 
-	// EmailAddressHasher names the address signing in by its keyed hash, on the request and on the
-	// sign-in's log line. With none, the log names no address at all.
-	EmailAddressHasher *pii_hasher.Hasher
+	// Log is what the sign-in's line and the request log say about the person signing in, and what
+	// the service adds to them; see id_token_endpoint_config.WithLog.
+	Log *log_options.Config
 }
 
 var idTokenHeaderExtractor = token_header_extractor.New(
@@ -204,30 +204,30 @@ func (e *Endpoint[T]) Initialize(
 		}
 
 		organizationIdentifier := providerClaims.OrganizationIdentifier()
-		emailAddressHash := e.EmailAddressHasher.HashEmailAddress(emailAddress)
 
 		// Resolved before the session is created, so that a refusal from the session manager — an
 		// address with no account, a locked account — is attributed to the same user as a success.
 		// Attached to the HTTP context rather than to one message, so it reaches the request log
 		// too and correlates with the rest of the service by the same fields.
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
-			httpContext.User = &schema.User{
-				Id:     providerClaims.Subject(),
-				Hash:   emailAddressHash,
-				Domain: organizationIdentifier,
-			}
+			user := e.Log.User(providerClaims.Subject(), emailAddress)
+			user.Domain = organizationIdentifier
+			httpContext.User = user
 		}
 
-		// The same message as the authorization code flow's, so that one query answers who signed
-		// in regardless of which route they took. The address is named by its hash alone, and not
-		// at all without a hasher.
-		userAttributes := []any{slog.String("id", providerClaims.Subject())}
-		if emailAddressHash != "" {
-			userAttributes = append(userAttributes, slog.String("hash", emailAddressHash))
-		}
-
+		// The same message and event as the authorization code flow's, so that one query answers who
+		// signed in regardless of which route they took. How the address is named -- by its hash, by
+		// itself, or not at all -- is the service's to say. As there, the line records the provider's
+		// authentication, which the checks below can still refuse.
 		logAttributes := []any{
-			slog.Group("user", userAttributes...),
+			e.Log.Event(
+				[]string{log_options.CategoryAuthentication},
+				[]string{log_options.TypeStart},
+				"identity_provider_authentication",
+				log_options.OutcomeSuccess,
+				"",
+			),
+			slog.Group("user", e.Log.UserAttrs(providerClaims.Subject(), emailAddress)...),
 			slog.Group("organization", slog.String("id", organizationIdentifier)),
 		}
 
@@ -254,7 +254,7 @@ func (e *Endpoint[T]) Initialize(
 				)
 			}
 		}
-		slog.InfoContext(ctx, "An identity provider authenticated a user.", logAttributes...)
+		slog.InfoContext(ctx, "An identity provider authenticated a user.", e.Log.Attrs(logAttributes...)...)
 
 		// A personal account belongs to no organization and so carries no identifier, which is what
 		// makes this keep consumer accounts out. Refused after the sign-in is logged, so that the
@@ -306,6 +306,7 @@ func New[T provider_claims.ProviderClaims](path string, options ...id_token_endp
 			},
 		},
 		RequireOrganization: config.RequireOrganization,
+		Log:                 config.Log,
 	}, nil
 }
 

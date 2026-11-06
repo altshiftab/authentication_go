@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	stdErrors "errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -38,7 +39,6 @@ import (
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/registered_claims_validator"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/validator/setting"
-	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	altshiftReflect "github.com/altshiftab/utils_go/pkg/reflect"
 	"github.com/altshiftab/utils_go/pkg/schema"
 	"github.com/altshiftab/utils_go/pkg/utils"
@@ -178,9 +178,9 @@ func MakeVerifyProcessor(authenticator *authenticatorPkg.Authenticator) processo
 type Endpoint struct {
 	*initialization_endpoint.Endpoint
 
-	// EmailAddressHasher names the address signing in by its keyed hash, on the request and on the
-	// sign-in's log line. With none, the log names no address at all.
-	EmailAddressHasher *pii_hasher.Hasher
+	// Log is what the sign-in's line and the request log say about the person signing in, and what
+	// the service adds to them; see validate_endpoint_config.WithLog.
+	Log *log_options.Config
 }
 
 func (e *Endpoint) Initialize(
@@ -236,7 +236,6 @@ func (e *Endpoint) Initialize(
 		nonceHash := verifiedToken.NonceHash
 
 		emailAddress := verifiedToken.EmailAddress
-		emailAddressHash := e.EmailAddressHasher.HashEmailAddress(emailAddress)
 
 		// Resolved before the session is created, so that a refusal from the session manager -- an
 		// address with no account, a locked account -- is attributed to the same user as a success.
@@ -244,7 +243,7 @@ func (e *Endpoint) Initialize(
 		// too: this is the request that authenticates the user, and without it the account is not
 		// named until the redirect that follows, on the strength of the cookie this one set.
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
-			httpContext.User = &schema.User{Hash: emailAddressHash}
+			httpContext.User = e.Log.User("", emailAddress)
 		}
 
 		response, responseError := sessionManager.CreateSession(ctx, authentication_method.MagicLink, emailAddress, nonceHash[:])
@@ -262,14 +261,16 @@ func (e *Endpoint) Initialize(
 		// A message of its own rather than the identity provider's: no provider authenticated
 		// anyone here, and the two say different things about what was proved. A magic link proves
 		// possession of a mailbox, with no second factor, no organization and no authentication
-		// context to state -- so the line carries the address the link was issued to, by its hash,
-		// and claims nothing further. The user carries no id: the account exists, but the provider
-		// subject that names one on an SSO sign-in has no counterpart here.
-		var logAttributes []any
-		if emailAddressHash != "" {
-			logAttributes = append(logAttributes, slog.Group("user", slog.String("hash", emailAddressHash)))
+		// context to state -- so the line carries the address the link was issued to, named as the
+		// service says, and claims nothing further. The user carries no id: the account exists, but
+		// the provider subject that names one on an SSO sign-in has no counterpart here.
+		logAttributes := []any{
+			e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "magic_link_sign_in", log_options.OutcomeSuccess, ""),
 		}
-		slog.InfoContext(ctx, "A magic link authenticated a user.", logAttributes...)
+		if userAttributes := e.Log.UserAttrs("", emailAddress); len(userAttributes) != 0 {
+			logAttributes = append(logAttributes, slog.Group("user", userAttributes...))
+		}
+		slog.InfoContext(ctx, "A magic link authenticated a user.", e.Log.Attrs(logAttributes...)...)
 
 		location := redirectUrlString
 		if verifiedToken.RedirectUrl != "" {
@@ -303,6 +304,7 @@ func New(options ...validate_endpoint_config.Option) *Endpoint {
 				},
 			},
 		},
+		Log: config.Log,
 	}
 }
 

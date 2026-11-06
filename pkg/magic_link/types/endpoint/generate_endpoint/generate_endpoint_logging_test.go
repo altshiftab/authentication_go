@@ -3,6 +3,8 @@ package generate_endpoint
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -106,8 +108,8 @@ func TestRequestLogging(t *testing.T) {
 				generate_endpoint_config.WithAccountChecker(
 					func(_ context.Context, _ string) (bool, error) { return testCase.accountExists, nil },
 				),
+				generate_endpoint_config.WithLog(log_options.WithEmailAddressHasher(hasher)),
 			)
-			testEndpoint.EmailAddressHasher = hasher
 			if err := testEndpoint.Initialize(
 				&magicLinkTesting.FakeMailSender{},
 				magicLinkTesting.NewSigner(),
@@ -176,6 +178,23 @@ func TestRequestLogging(t *testing.T) {
 			}
 			if testCase.wantHash != "" && !bytes.Contains(logBuffer.Bytes(), []byte(testCase.wantHash)) {
 				t.Errorf("%s: the address's hash %s is not in the log: %s", testCase.name, testCase.wantHash, written)
+			}
+
+			// The address is whatever the request typed: the user it names is marked unverified.
+			if testCase.wantHash != "" {
+				var marked bool
+				for line := range bytes.Lines(logBuffer.Bytes()) {
+					var entry map[string]any
+					if err := json.Unmarshal(line, &entry); err != nil {
+						continue
+					}
+					if user, _ := entry["user"].(map[string]any); user["hash"] == testCase.wantHash {
+						marked = user["unverified"] == true
+					}
+				}
+				if !marked {
+					t.Errorf("%s: the user the address names is not marked unverified: %s", testCase.name, written)
+				}
 			}
 		})
 	}

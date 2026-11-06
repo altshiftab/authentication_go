@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -70,6 +71,9 @@ type Endpoint struct {
 	*initialization_endpoint.Endpoint
 	DecisionPath string
 	now          func() time.Time
+
+	// Log is what the endpoint's audit lines carry beside their own fields; see New.
+	Log *log_options.Config
 }
 
 // Initialize has the endpoint take the user from the authorizer -- which should send someone with no
@@ -116,12 +120,12 @@ func (e *Endpoint) Initialize(
 
 		// Who the client is, and where it may be sent, before anything is sent there.
 		if input.ClientId == "" {
-			return refusedPage(ctx, "The application did not say who it is.", "no client id")
+			return e.refusedPage(ctx, "The application did not say who it is.", "no client id")
 		}
 		resolved, err := clients.Resolve(ctx, input.ClientId)
 		if err != nil {
 			if errors.Is(err, altshiftErrors.ErrValidationError) {
-				return refusedPage(ctx, "The application is not one this service knows.", "unknown client")
+				return e.refusedPage(ctx, "The application is not one this service knows.", "unknown client")
 			}
 			return nil, &response_error.ResponseError{ServerError: altshiftErrors.New(fmt.Errorf("client resolver resolve: %w", err))}
 		}
@@ -129,12 +133,14 @@ func (e *Endpoint) Initialize(
 			return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("client"))}
 		}
 		if !resolved.AllowsRedirectUri(input.RedirectUri) {
-			return refusedPage(ctx, "The application asked to be answered at an address it does not have.", "redirect uri not registered")
+			return e.refusedPage(ctx, "The application asked to be answered at an address it does not have.", "redirect uri not registered")
 		}
 
 		refuse := func(errorCode string, description string) (*muxResponse.Response, *response_error.ResponseError) {
-			slog.InfoContext(ctx, "An OAuth authorization request was refused.",
-				slog.Group("oauth", slog.String("error", errorCode), slog.String("client_id", input.ClientId)))
+			slog.InfoContext(ctx, "An OAuth authorization request was refused.", e.Log.Attrs(
+				e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_authorization", log_options.OutcomeFailure, ""),
+				slog.Group("oauth", slog.String("error", errorCode), slog.String("client_id", input.ClientId)),
+			)...)
 			return redirect(input.RedirectUri, issuer, map[string]string{
 				"error": errorCode, "error_description": description, "state": input.State,
 			})
@@ -201,8 +207,11 @@ func (e *Endpoint) Initialize(
 }
 
 // refusedPage refuses a request that cannot be sent back to its client.
-func refusedPage(ctx context.Context, detail string, reason string) (*muxResponse.Response, *response_error.ResponseError) {
-	slog.InfoContext(ctx, "An OAuth authorization request was refused.", slog.Group("oauth", slog.String("error", reason)))
+func (e *Endpoint) refusedPage(ctx context.Context, detail string, reason string) (*muxResponse.Response, *response_error.ResponseError) {
+	slog.InfoContext(ctx, "An OAuth authorization request was refused.", e.Log.Attrs(
+		e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_authorization", log_options.OutcomeFailure, ""),
+		slog.Group("oauth", slog.String("error", reason)),
+	)...)
 
 	body, headers, err := page.RenderMessage("The application's request was refused", detail)
 	if err != nil {
@@ -226,8 +235,11 @@ func redirect(redirectUri string, issuer string, parameters map[string]string) (
 	}, nil
 }
 
-func New() *Endpoint {
+// New makes the endpoint. Its options are log_options' own, there being nothing else about the
+// endpoint to configure before it is initialized.
+func New(options ...log_options.Option) *Endpoint {
 	return &Endpoint{
+		Log: log_options.New(options...),
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{
 				Path:      DefaultPath,

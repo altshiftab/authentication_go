@@ -3,6 +3,7 @@ package callback_endpoint_config
 import (
 	"context"
 	"database/sql"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"time"
 
 	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
@@ -62,12 +63,17 @@ type Config struct {
 	// hosted domains for Google, tenants for Microsoft. Empty places no restriction. A non-empty
 	// list implies an organization is required, since an account without one cannot be on it.
 	AllowedOrganizations []string
+
+	// Log is what the endpoint's audit lines say about the person they concern, and what the
+	// service adds to them; see log_options. Empty by default: an id, and no address at all.
+	Log *log_options.Config
 }
 
 type Option func(*Config)
 
 func New(options ...Option) *Config {
 	config := &Config{
+		Log:                                  log_options.New(),
 		CallbackCookieName:                   DefaultCallbackCookieName,
 		RequireStrongAuthentication:          DefaultRequireStrongAuthentication,
 		StrongAuthenticationMethodReferences: DefaultStrongAuthenticationMethodReferences,
@@ -136,5 +142,13 @@ func WithAllowedOrganizations(allowedOrganizations []string) Option {
 func WithStrongAuthenticationMethodReferences(strongAuthenticationMethodReferences []string) Option {
 	return func(config *Config) {
 		config.StrongAuthenticationMethodReferences = strongAuthenticationMethodReferences
+	}
+}
+
+// WithLog sets what the endpoint's audit lines say about the person they concern, and what the
+// service adds to them, from log_options' options.
+func WithLog(options ...log_options.Option) Option {
+	return func(config *Config) {
+		config.Log = log_options.New(options...)
 	}
 }

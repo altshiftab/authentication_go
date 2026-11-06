@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/altshiftab/authentication_go/pkg/log_masking"
+	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"github.com/altshiftab/utils_go/pkg/http/types/http_context_extractor/http_context_extractor_config"
-	"github.com/altshiftab/utils_go/pkg/log/pii_hasher"
 	"github.com/altshiftab/utils_go/pkg/schema"
 	"log/slog"
 	"net/http"
@@ -114,9 +114,9 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	RequireOrganization                  bool
 	AllowedOrganizations                 []string
 
-	// EmailAddressHasher names the address signing in by its keyed hash, on the request and on the
-	// sign-in's log line. With none, the log names no address at all.
-	EmailAddressHasher *pii_hasher.Hasher
+	// Log is what the sign-in's lines and the request log say about the person signing in, and what
+	// the service adds to them; see callback_endpoint_config.WithLog.
+	Log *log_options.Config
 
 	// LoginPath is the path of the login endpoint whose flows this completes; see callback_endpoint_config.
 	LoginPath string
@@ -369,14 +369,19 @@ func (e *Endpoint[T]) Initialize(
 				logCtx = altshiftHttpContext.WithHttpContextValue(ctx, httpContext)
 			}
 
+			// The identity provider did not authenticate the user: they declined, or it refused them.
 			slog.WarnContext(
 				altshiftContext.WithError(logCtx, altshiftErrors.NewWithTrace(oauthError)),
 				"An OAuth error occurred.",
-				slog.Group(
-					"event",
-					slog.String("reason", "An OAuth error occurred."),
-					slog.String("action", "log_oauth_error"),
-				),
+				e.Log.Attrs(
+					e.Log.Event(
+						[]string{log_options.CategoryAuthentication},
+						[]string{log_options.TypeStart},
+						"identity_provider_authentication",
+						log_options.OutcomeFailure,
+						"An OAuth error occurred.",
+					),
+				)...,
 			)
 
 			// Resolve the redirect target: the category-specific problem page, then
@@ -487,14 +492,11 @@ func (e *Endpoint[T]) Initialize(
 		}
 
 		organizationIdentifier := providerClaims.OrganizationIdentifier()
-		emailAddressHash := e.EmailAddressHasher.HashEmailAddress(emailAddress)
 
 		if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok && httpContext != nil {
-			httpContext.User = &schema.User{
-				Id:     providerClaims.Subject(),
-				Hash:   emailAddressHash,
-				Domain: organizationIdentifier,
-			}
+			user := e.Log.User(providerClaims.Subject(), emailAddress)
+			user.Domain = organizationIdentifier
+			httpContext.User = user
 		}
 
 		// Logged for every sign-in, not just when a strong method is required: how the provider
@@ -504,15 +506,20 @@ func (e *Endpoint[T]) Initialize(
 		strongAuthentication := authenticationContext.HasAnyMethodReference(e.StrongAuthenticationMethodReferences)
 
 		// Named on the message itself as well as on the HTTP context: the context is read by the
-		// logger when the request completes, which does not help a line written mid-handler. The
-		// address is named by its hash alone, and not at all without a hasher.
-		userAttributes := []any{slog.String("id", providerClaims.Subject())}
-		if emailAddressHash != "" {
-			userAttributes = append(userAttributes, slog.String("hash", emailAddressHash))
-		}
-
+		// logger when the request completes, which does not help a line written mid-handler. How the
+		// address is named -- by its hash, by itself, or not at all -- is the service's to say.
+		//
+		// What the line records is the identity provider's authentication, not the sign-in: the
+		// checks below can still refuse the user, and do so after it is written.
 		logAttributes := []any{
-			slog.Group("user", userAttributes...),
+			e.Log.Event(
+				[]string{log_options.CategoryAuthentication},
+				[]string{log_options.TypeStart},
+				"identity_provider_authentication",
+				log_options.OutcomeSuccess,
+				"",
+			),
+			slog.Group("user", e.Log.UserAttrs(providerClaims.Subject(), emailAddress)...),
 			slog.Bool("strong_authentication", strongAuthentication),
 			slog.Bool("strong_authentication_required", e.RequireStrongAuthentication),
 			slog.Bool("organization_required", e.RequireOrganization),
@@ -531,7 +538,7 @@ func (e *Endpoint[T]) Initialize(
 				)
 			}
 		}
-		slog.InfoContext(ctx, "An identity provider authenticated a user.", logAttributes...)
+		slog.InfoContext(ctx, "An identity provider authenticated a user.", e.Log.Attrs(logAttributes...)...)
 
 		// A personal account belongs to no organization and so carries no identifier, which is what
 		// makes this keep consumer accounts out.
@@ -710,6 +717,7 @@ func New[T provider_claims.ProviderClaims](path string, options ...callback_endp
 		RequireOrganization:                  config.RequireOrganization,
 		AllowedOrganizations:                 config.AllowedOrganizations,
 		LoginPath:                            config.LoginPath,
+		Log:                                  config.Log,
 		popOauthFlow:                         config.PopOauthFlow,
 		popExpiredOauthFlowByState:           config.PopExpiredOauthFlowByState,
 		classifyOauthError:                   config.ClassifyOauthError,
