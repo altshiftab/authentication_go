@@ -8,6 +8,7 @@
 package decision_endpoint
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/altshiftab/authentication_go/pkg/log_options"
@@ -77,16 +78,16 @@ func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_t
 
 		form, err := url.ParseQuery(string(body))
 		if err != nil {
-			return refusedPage(http.StatusBadRequest, "The answer could not be read.")
+			return e.refusedPage(ctx, sessionToken, nil, http.StatusBadRequest, "The answer could not be read.", "unreadable answer")
 		}
 		requestId, decision := form.Get("request_id"), form.Get("decision")
 		if requestId == "" {
-			return refusedPage(http.StatusBadRequest, "The answer did not say which request it answers.")
+			return e.refusedPage(ctx, sessionToken, nil, http.StatusBadRequest, "The answer did not say which request it answers.", "no request id")
 		}
 
 		authorizationRequest, err := store.PopAuthorizationRequest(ctx, requestId)
 		if errors.Is(err, oauth.ErrNotFound) {
-			return refusedPage(http.StatusBadRequest, "The request has been answered already, or never was. Start again from the application.")
+			return e.refusedPage(ctx, sessionToken, nil, http.StatusBadRequest, "The request has been answered already, or never was. Start again from the application.", "unknown request")
 		}
 		if err != nil {
 			return nil, &response_error.ResponseError{ServerError: altshiftErrors.New(fmt.Errorf("store pop authorization request: %w", err))}
@@ -95,10 +96,10 @@ func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_t
 			return nil, &response_error.ResponseError{ServerError: altshiftErrors.NewWithTrace(nil_error.New("authorization request"))}
 		}
 		if authorizationRequest.AccountId != sessionToken.SubjectId {
-			return refusedPage(http.StatusForbidden, "The request was made for someone else.")
+			return e.refusedPage(ctx, sessionToken, authorizationRequest, http.StatusForbidden, "The request was made for someone else.", "request for another account")
 		}
 		if !e.now().Before(authorizationRequest.ExpiresAt) {
-			return refusedPage(http.StatusBadRequest, "The request has expired. Start again from the application.")
+			return e.refusedPage(ctx, sessionToken, authorizationRequest, http.StatusBadRequest, "The request has expired. Start again from the application.", "expired request")
 		}
 
 		logAttributes := []any{
@@ -121,7 +122,7 @@ func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_t
 			})
 		case "allow":
 		default:
-			return refusedPage(http.StatusBadRequest, "The answer was neither to allow nor to deny.")
+			return e.refusedPage(ctx, sessionToken, authorizationRequest, http.StatusBadRequest, "The answer was neither to allow nor to deny.", "unknown decision")
 		}
 
 		code, err := oauth.NewSecret()
@@ -153,7 +154,37 @@ func (e *Endpoint) Initialize(authorizer request_parser.RequestParser[*session_t
 	return nil
 }
 
-func refusedPage(status int, detail string) (*muxResponse.Response, *response_error.ResponseError) {
+// refusedPage logs an answer that was not taken and renders the page saying why. An answer for
+// another account's request, or for one expired or never made, is a stale page at best and someone
+// answering on another's behalf at worst, so it is logged as the authorize endpoint logs its
+// refusals. The request, when known, names the client, and the account it was made for if that is
+// not the one answering.
+func (e *Endpoint) refusedPage(
+	ctx context.Context,
+	sessionToken *session_token.Token,
+	authorizationRequest *oauth.AuthorizationRequest,
+	status int,
+	detail string,
+	reason string,
+) (*muxResponse.Response, *response_error.ResponseError) {
+	var userAttributes []any
+	if sessionToken != nil {
+		userAttributes = append(userAttributes, slog.String("id", sessionToken.SubjectId))
+	}
+	oauthAttributes := []any{slog.String("error", reason)}
+	if authorizationRequest != nil {
+		oauthAttributes = append(oauthAttributes, slog.String("client_id", authorizationRequest.ClientId))
+		if sessionToken == nil || authorizationRequest.AccountId != sessionToken.SubjectId {
+			userAttributes = append(userAttributes, slog.Group("target", slog.String("id", authorizationRequest.AccountId)))
+		}
+	}
+
+	slog.InfoContext(ctx, "An answer to an OAuth authorization request was refused.", e.Log.Attrs(
+		e.Log.Event([]string{log_options.CategoryAuthentication}, []string{log_options.TypeStart}, "oauth_authorization_decision", log_options.OutcomeFailure, ""),
+		slog.Group("user", userAttributes...),
+		slog.Group("oauth", oauthAttributes...),
+	)...)
+
 	body, headers, err := page.RenderMessage("The answer was not taken", detail)
 	if err != nil {
 		return nil, &response_error.ResponseError{ServerError: altshiftErrors.New(fmt.Errorf("page render message: %w", err))}
