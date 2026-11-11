@@ -12,8 +12,10 @@ import (
 
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	ssoErrors "github.com/altshiftab/authentication_go/pkg/sso/errors"
 	"github.com/altshiftab/authentication_go/pkg/sso/errors/oauth_error"
 	testing2 "github.com/altshiftab/authentication_go/pkg/sso/testing"
+	"github.com/altshiftab/authentication_go/pkg/sso/types/provider_claims"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
@@ -285,7 +287,14 @@ func TestEndpoint(t *testing.T) {
 func runSignIn(t *testing.T, code string, args *muxTesting.Args, options ...callback_endpoint_config.Option) {
 	t.Helper()
 
-	testEndpoint, err := New[*testing2.ProviderClaims](defaultPath, options...)
+	runSignInAs[*testing2.ProviderClaims](t, code, args, options...)
+}
+
+// runSignInAs is runSignIn with the ID token read as claims of type T.
+func runSignInAs[T provider_claims.ProviderClaims](t *testing.T, code string, args *muxTesting.Args, options ...callback_endpoint_config.Option) {
+	t.Helper()
+
+	testEndpoint, err := New[T](defaultPath, options...)
 	if err != nil {
 		t.Fatalf("new endpoint: %v", err)
 	}
@@ -355,6 +364,85 @@ func TestEndpoint_RequireStrongAuthentication(t *testing.T) {
 			runSignIn(t, testCase.code, testCase.args, callback_endpoint_config.WithRequireStrongAuthentication(true))
 		})
 	}
+}
+
+// TestEndpoint_RequireEmailDomainOwnerVerified covers refusing an account whose organization has
+// not verified the domain of its address: the claim saying so, and the claim left out, which is
+// unproven. Off, the requirement admits both.
+func TestEndpoint_RequireEmailDomainOwnerVerified(t *testing.T) {
+	t.Parallel()
+
+	admitted := func() *muxTesting.Args {
+		return &muxTesting.Args{
+			ExpectedStatusCode: http.StatusSeeOther,
+			ExpectedHeaders:    [][2]string{{"Location", testing2.RedirectUrl}},
+		}
+	}
+	refused := func() *muxTesting.Args {
+		return &muxTesting.Args{
+			ExpectedStatusCode: http.StatusForbidden,
+			ExpectedProblemDetail: &problem_detail.Detail{
+				Detail: "The organization the account belongs to has not verified the domain of its email address.",
+			},
+		}
+	}
+
+	testCases := []struct {
+		name     string
+		code     string
+		required bool
+		args     *muxTesting.Args
+	}{
+		{name: "verified", code: testing2.OauthStrongAuthenticationCode, required: true, args: admitted()},
+		{name: "not verified", code: testing2.OauthUnverifiedEmailDomainCode, required: true, args: refused()},
+		{name: "not said", code: testing2.OauthCode, required: true, args: refused()},
+		{name: "not verified, not required", code: testing2.OauthUnverifiedEmailDomainCode, args: admitted()},
+		{name: "not said, not required", code: testing2.OauthCode, args: admitted()},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			runSignIn(t, testCase.code, testCase.args, callback_endpoint_config.WithRequireEmailDomainOwnerVerified(testCase.required))
+		})
+	}
+
+	// Claims that say nothing of the domain, as Google's do not, are not held to it.
+	t.Run("claims that do not say", func(t *testing.T) {
+		t.Parallel()
+
+		runSignInAs[*claimsSilentOnDomain](t, testing2.OauthCode, admitted(), callback_endpoint_config.WithRequireEmailDomainOwnerVerified(true))
+	})
+}
+
+// claimsSilentOnDomain is the test claims without a word on the email domain's verification, as a
+// Google ID token has none.
+type claimsSilentOnDomain struct {
+	EmailAddress string   `json:"email_address"`
+	Verified     bool     `json:"verified"`
+	Amr          []string `json:"amr,omitzero"`
+	Organization string   `json:"organization,omitzero"`
+	Sub          string   `json:"sub,omitzero"`
+}
+
+func (c *claimsSilentOnDomain) Subject() string {
+	return c.Sub
+}
+
+func (c *claimsSilentOnDomain) OrganizationIdentifier() string {
+	return c.Organization
+}
+
+func (c *claimsSilentOnDomain) AuthenticationContext() *provider_claims.AuthenticationContext {
+	return &provider_claims.AuthenticationContext{MethodReferences: c.Amr}
+}
+
+func (c *claimsSilentOnDomain) VerifiedEmailAddress() (string, error) {
+	if !c.Verified {
+		return "", ssoErrors.ErrForbiddenUser
+	}
+	return c.EmailAddress, nil
 }
 
 // TestEndpoint_RequireOrganization covers refusing accounts that belong to no organization, which

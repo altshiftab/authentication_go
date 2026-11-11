@@ -63,6 +63,12 @@ type Config struct {
 	// hosted domains for Google, tenants for Microsoft. Empty places no restriction. A non-empty
 	// list implies an organization is required, since an account without one cannot be on it.
 	AllowedOrganizations []string
+	// RequireEmailDomainOwnerVerified refuses an account whose organization has not verified the
+	// domain of its email address, where the provider's claims say so: Microsoft's "xms_edov", which
+	// the app registration has to ask for. Such an address can be anyone's, and the sign-in finds
+	// the account by it. A claim that is absent or unreadable is refused as well. Claims that say
+	// nothing of it, Google's, are not affected; Google's email_verified is required regardless.
+	RequireEmailDomainOwnerVerified bool
 
 	// Log is what the endpoint's audit lines say about the person they concern, and what the
 	// service adds to them; see log_options. Empty by default: an id, and no address at all.
@@ -136,6 +142,12 @@ func WithRequireOrganization(requireOrganization bool) Option {
 func WithAllowedOrganizations(allowedOrganizations []string) Option {
 	return func(config *Config) {
 		config.AllowedOrganizations = allowedOrganizations
+	}
+}
+
+func WithRequireEmailDomainOwnerVerified(requireEmailDomainOwnerVerified bool) Option {
+	return func(config *Config) {
+		config.RequireEmailDomainOwnerVerified = requireEmailDomainOwnerVerified
 	}
 }
 

@@ -113,6 +113,7 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	StrongAuthenticationMethodReferences []string
 	RequireOrganization                  bool
 	AllowedOrganizations                 []string
+	RequireEmailDomainOwnerVerified      bool
 
 	// Log is what the sign-in's lines and the request log say about the person signing in, and what
 	// the service adds to them; see callback_endpoint_config.WithLog.
@@ -545,12 +546,14 @@ func (e *Endpoint[T]) Initialize(
 			}
 		}
 		// Whether the account's organization verified the domain of its address, where the provider
-		// says so (Microsoft's xms_edov): logged rather than required until the sign-ins show who a
-		// requirement would refuse.
+		// says so (Microsoft's xms_edov), and whether that is required, as below.
+		emailDomainOwnerVerified := ""
 		if verifier, ok := any(providerClaims).(provider_claims.EmailDomainOwnerVerifier); ok {
+			emailDomainOwnerVerified = verifier.EmailDomainOwnerVerified()
 			logAttributes = append(
 				logAttributes,
-				slog.String("email_domain_owner_verified", verifier.EmailDomainOwnerVerified()),
+				slog.String("email_domain_owner_verified", emailDomainOwnerVerified),
+				slog.Bool("email_domain_owner_verified_required", e.RequireEmailDomainOwnerVerified),
 			)
 		}
 		slog.InfoContext(ctx, "An identity provider authenticated a user.", e.Log.Attrs(logAttributes...)...)
@@ -590,6 +593,20 @@ func (e *Endpoint[T]) Initialize(
 					http.StatusForbidden,
 					problem_detail_config.WithDetail(
 						"The identity provider did not state that a strong enough authentication method was used.",
+					),
+				),
+			}
+		}
+
+		// An address in a domain the account's organization has not verified can be anyone's, and
+		// the account is found by its address. Claims that say nothing of it are not held to it.
+		if e.RequireEmailDomainOwnerVerified && emailDomainOwnerVerified != "" && emailDomainOwnerVerified != provider_claims.FlagTrue {
+			return nil, &response_error.ResponseError{
+				ClientError: altshiftErrors.NewWithTrace(ssoErrors.ErrForbiddenUser, emailDomainOwnerVerified),
+				ProblemDetail: problem_detail.New(
+					http.StatusForbidden,
+					problem_detail_config.WithDetail(
+						"The organization the account belongs to has not verified the domain of its email address.",
 					),
 				),
 			}
@@ -731,6 +748,7 @@ func New[T provider_claims.ProviderClaims](path string, options ...callback_endp
 		StrongAuthenticationMethodReferences: config.StrongAuthenticationMethodReferences,
 		RequireOrganization:                  config.RequireOrganization,
 		AllowedOrganizations:                 config.AllowedOrganizations,
+		RequireEmailDomainOwnerVerified:      config.RequireEmailDomainOwnerVerified,
 		LoginPath:                            config.LoginPath,
 		Log:                                  config.Log,
 		popOauthFlow:                         config.PopOauthFlow,

@@ -69,6 +69,7 @@ const (
 	OauthInvalidIdTokenCode         = "invalid_id_token"
 	OauthUnverifiedEmailAddressCode = "unverified_email_address"
 	OauthEmptyEmailAddressCode      = "empty_email_address"
+	OauthUnverifiedEmailDomainCode  = "unverified_email_domain"
 
 	JwksPath  = "/.well-known/jwks.json"
 	TokenPath = "/oauth/token" //nolint:gosec // G101: a path, not a credential.
@@ -292,6 +293,11 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 						if inputCode == OauthStrongAuthenticationCode {
 							tokenPayload["amr"] = []string{"pwd", "mfa"}
 							tokenPayload["xms_edov"] = true
+						}
+
+						// An address in a domain the account's organization has not verified.
+						if inputCode == OauthUnverifiedEmailDomainCode {
+							tokenPayload["xms_edov"] = false
 						}
 
 						// An account with no organization carries no identifier, which is the
