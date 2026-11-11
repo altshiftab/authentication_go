@@ -1,6 +1,7 @@
 package oauth_error
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -20,12 +21,31 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
+	msg := e.codes()
+	if e.Description != "" {
+		msg += fmt.Sprintf(": %s", e.Description)
+	}
+
+	return msg
+}
+
+// Summary is the error as a record of the failed authentication carries it: its code and subcode,
+// which the provider chooses from a set of its own, without the description, which is its free
+// text and can name the account. It is a plain error, which a log writes as its message alone.
+func (e *Error) Summary() error {
+	if e == nil {
+		return nil
+	}
+
+	//nolint:err113 // Plain, so that the log writes the message alone, with no type or cause.
+	return errors.New(e.codes())
+}
+
+// codes is the error's code, and its subcode when it has one, as its message opens with them.
+func (e *Error) codes() string {
 	msg := fmt.Sprintf("oauth error: %s", e.Code)
 	if e.Subcode != "" {
 		msg += fmt.Sprintf(" (%s)", e.Subcode)
-	}
-	if e.Description != "" {
-		msg += fmt.Sprintf(": %s", e.Description)
 	}
 
 	return msg

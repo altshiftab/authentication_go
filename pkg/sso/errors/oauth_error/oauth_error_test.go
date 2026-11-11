@@ -1,6 +1,7 @@
 package oauth_error
 
 import (
+	"fmt"
 	"testing"
 
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
@@ -130,5 +131,45 @@ func TestNew(t *testing.T) {
 	}
 	if err.Uri != "https://example.com/error" {
 		t.Errorf("Uri = %q, want %q", err.Uri, "https://example.com/error")
+	}
+}
+
+// A summary keeps the codes the provider chooses from its own set and leaves the description out,
+// its free text, as a plain error a log writes as its message alone.
+func TestSummary(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		err         *Error
+		wantMessage string
+	}{
+		{name: "nil"},
+		{name: "code only", err: New("access_denied", "", "", ""), wantMessage: "oauth error: access_denied"},
+		{
+			name:        "code, subcode, description and uri",
+			err:         New("access_denied", "cancel", "AADSTS65004: User declined to consent to access the app.", "https://example.com/error"),
+			wantMessage: "oauth error: access_denied (cancel)",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			summary := testCase.err.Summary()
+			if testCase.err == nil {
+				if summary != nil {
+					t.Errorf("got %v, want nil", summary)
+				}
+				return
+			}
+			if summary == nil || summary.Error() != testCase.wantMessage {
+				t.Fatalf("got %v, want %q", summary, testCase.wantMessage)
+			}
+			if got := fmt.Sprintf("%T", summary); got != "*errors.errorString" {
+				t.Errorf("got a summary of type %s, want *errors.errorString", got)
+			}
+		})
 	}
 }

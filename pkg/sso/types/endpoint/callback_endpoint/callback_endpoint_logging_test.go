@@ -122,16 +122,39 @@ func TestProviderErrorLogging(t *testing.T) { //nolint:paralleltest // Swaps the
 		t.Errorf("callback cookie MaxAge = %d, want < 0 (cleared)", callbackCookie.MaxAge)
 	}
 
-	// ECS log assertions.
+	// What the identity provider said goes to the service's own log: the error with its
+	// description and code, and the request it came on, bridged from the mux's HTTP context. It
+	// carries no event, so that it is not taken for the record.
 	logEntry := findLogEntry(t, &logBuffer, "An OAuth error occurred.")
-
 	if level, _ := logEntry["level"].(string); level != "WARN" {
 		t.Errorf("level = %q, want %q", level, "WARN")
 	}
+	if _, ok := logEntry["event"]; ok {
+		t.Errorf("the line of what the provider said carries an event: %v", logEntry["event"])
+	}
+	errorObject := childObject(t, logEntry, "error")
+	if got := errorObject["code"]; got != "access_denied" {
+		t.Errorf("error.code = %v, want %q", got, "access_denied")
+	}
+	if message, _ := errorObject["message"].(string); !strings.Contains(message, "access_denied") ||
+		!strings.Contains(message, errorDescription) {
+		t.Errorf("error.message = %q, want it to contain %q and %q", message, "access_denied", errorDescription)
+	}
+	for _, group := range []string{"http", "url"} {
+		if _, ok := logEntry[group]; !ok {
+			t.Errorf("expected a %q group in the log entry; got keys %v", group, keysOf(logEntry))
+		}
+	}
 
-	// A failed authentication by the identity provider, as the success is the same action with the
-	// outcome success: one query over the action answers both.
-	event := childObject(t, logEntry, "event")
+	// The record: a failed authentication by the identity provider, as the success is the same
+	// action with the outcome success, so that one query over the action answers both. It carries
+	// the error's codes alone: not the description, the provider's free text, nor the request, which
+	// the success's record does not carry either.
+	record := findLogEntry(t, &logBuffer, "An identity provider did not authenticate a user.")
+	if level, _ := record["level"].(string); level != "WARN" {
+		t.Errorf("level = %q, want %q", level, "WARN")
+	}
+	event := childObject(t, record, "event")
 	if got := event["action"]; got != "identity_provider_authentication" {
 		t.Errorf("event.action = %v, want %q", got, "identity_provider_authentication")
 	}
@@ -141,26 +164,21 @@ func TestProviderErrorLogging(t *testing.T) { //nolint:paralleltest // Swaps the
 	if got := event["reason"]; got != "An OAuth error occurred." {
 		t.Errorf("event.reason = %v, want %q", got, "An OAuth error occurred.")
 	}
-
-	// The error.* group is produced from the oauth_error.Error placed in the
-	// logging context by the error context extractor: GetCode() surfaces as
-	// error.code, and Error() as error.message.
-	errorObject := childObject(t, logEntry, "error")
-	if got := errorObject["code"]; got != "access_denied" {
-		t.Errorf("error.code = %v, want %q", got, "access_denied")
+	wantError := map[string]any{"message": "oauth error: access_denied (cancel)"}
+	if got := record["error"]; !reflect.DeepEqual(got, wantError) {
+		t.Errorf("the record's error is %v, want %v", got, wantError)
 	}
-	if message, _ := errorObject["message"].(string); !strings.Contains(message, "access_denied") ||
-		!strings.Contains(message, errorDescription) {
-		t.Errorf("error.message = %q, want it to contain %q and %q", message, "access_denied", errorDescription)
+	for _, group := range []string{"url", "client", "user_agent"} {
+		if _, ok := record[group]; ok {
+			t.Errorf("the record carries the request's %q: %v", group, record[group])
+		}
 	}
-
-	// Bridging the mux HTTP context onto the logging context should let the
-	// http_context_extractor populate the ECS http/url groups.
-	if _, ok := logEntry["http"]; !ok {
-		t.Errorf("expected an `http` group in the log entry; got keys %v", keysOf(logEntry))
+	recordBytes, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("json marshal (record): %v", err)
 	}
-	if _, ok := logEntry["url"]; !ok {
-		t.Errorf("expected a `url` group in the log entry; got keys %v", keysOf(logEntry))
+	if strings.Contains(string(recordBytes), "declined") {
+		t.Errorf("the record holds the provider's description: %s", recordBytes)
 	}
 }
 

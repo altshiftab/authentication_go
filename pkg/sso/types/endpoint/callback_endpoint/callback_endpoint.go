@@ -360,19 +360,25 @@ func (e *Endpoint[T]) Initialize(
 				category = e.classifyOauthError(oauthError)
 			}
 
-			// Bridge the mux's HTTP context onto the logging context so the
-			// registered http_context_extractor populates the ECS http/url/client/...
-			// fields. The mux only does this automatically when it handles a
-			// ResponseError, which is deliberately avoided here.
+			// What the identity provider said, with the request it came on, for the service's own log:
+			// the error with its description. The mux's HTTP context is bridged onto the logging
+			// context so the registered http_context_extractor populates the ECS http/url/client/...
+			// fields; the mux only does that when it handles a ResponseError, which is deliberately
+			// avoided here. The line carries no event, so that it is not taken for the record below.
 			logCtx := ctx
 			if httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext); ok {
 				logCtx = altshiftHttpContext.WithHttpContextValue(ctx, httpContext)
 			}
+			slog.WarnContext(altshiftContext.WithError(logCtx, oauthError), "An OAuth error occurred.")
 
-			// The identity provider did not authenticate the user: they declined, or it refused them.
+			// The record of it: the identity provider did not authenticate the user -- they declined,
+			// or it refused them. A service may keep its records longer than its log, so the record
+			// carries the error's codes alone, not the description, which is the provider's free text
+			// and can name the account, nor the request, which the success's record does not carry
+			// either.
 			slog.WarnContext(
-				altshiftContext.WithError(logCtx, altshiftErrors.NewWithTrace(oauthError)),
-				"An OAuth error occurred.",
+				altshiftContext.WithError(ctx, oauthError.Summary()),
+				"An identity provider did not authenticate a user.",
 				e.Log.Attrs(
 					e.Log.Event(
 						[]string{log_options.CategoryAuthentication},
