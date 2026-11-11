@@ -24,6 +24,60 @@ type ProviderClaims interface {
 	OrganizationIdentifier() string
 }
 
+// EmailDomainOwnerVerifier is claims that can say whether the organization an account belongs to
+// has verified the domain of the account's email address: Microsoft's "xms_edov". An address in a
+// domain the tenant has not verified can be anyone's, so this is what a sign-in that ties accounts
+// by address would refuse on; until one does, the callback logs what the provider said.
+type EmailDomainOwnerVerifier interface {
+	// EmailDomainOwnerVerified is "true" or "false" as the provider said it, "absent" when the
+	// token did not carry the claim, and "unreadable" when it carried it in a form not understood.
+	EmailDomainOwnerVerified() string
+}
+
+// The states of an OptionalFlag.
+const (
+	FlagTrue       = "true"
+	FlagFalse      = "false"
+	FlagAbsent     = "absent"
+	FlagUnreadable = "unreadable"
+)
+
+// OptionalFlag is an optional boolean claim, which a provider may send as a JSON boolean, as the
+// string of one or as 1 or 0, or leave out. Reading it never fails, so that a claim in a form not
+// expected cannot fail the sign-in it comes with; such a value is kept as unreadable.
+type OptionalFlag struct {
+	readable bool
+	value    bool
+}
+
+func (f *OptionalFlag) UnmarshalJSON(data []byte) error {
+	switch strings.ToLower(strings.Trim(strings.TrimSpace(string(data)), `"`)) {
+	case "true", "1":
+		f.readable, f.value = true, true
+	case "false", "0":
+		f.readable, f.value = true, false
+	default:
+		f.readable, f.value = false, false
+	}
+
+	return nil
+}
+
+// State is the flag as FlagTrue, FlagFalse, FlagAbsent for a flag the claims did not carry (nil),
+// or FlagUnreadable.
+func (f *OptionalFlag) State() string {
+	switch {
+	case f == nil:
+		return FlagAbsent
+	case !f.readable:
+		return FlagUnreadable
+	case f.value:
+		return FlagTrue
+	default:
+		return FlagFalse
+	}
+}
+
 // AuthenticationContext holds what an identity provider states about an authentication event. The
 // claims are only present when the provider is asked for them and chooses to supply them.
 type AuthenticationContext struct {
@@ -132,6 +186,9 @@ type MicrosoftClaims struct {
 	Amr               []string `json:"amr,omitzero"`
 	Acr               string   `json:"acr,omitzero"`
 	AuthTime          int64    `json:"auth_time,omitzero"`
+	// XmsEdov is the optional "xms_edov" claim, whether the tenant has verified the domain of the
+	// email address. The app registration has to ask for it.
+	XmsEdov *OptionalFlag `json:"xms_edov,omitzero"`
 }
 
 func (c *MicrosoftClaims) Subject() string {
@@ -156,6 +213,11 @@ func (c *MicrosoftClaims) OrganizationIdentifier() string {
 
 func (c *MicrosoftClaims) AuthenticationContext() *AuthenticationContext {
 	return &AuthenticationContext{MethodReferences: c.Amr, ContextClass: c.Acr, AuthenticatedAt: c.AuthTime}
+}
+
+// EmailDomainOwnerVerified is the "xms_edov" claim's state; see EmailDomainOwnerVerifier.
+func (c *MicrosoftClaims) EmailDomainOwnerVerified() string {
+	return c.XmsEdov.State()
 }
 
 func (c *MicrosoftClaims) VerifiedEmailAddress() (string, error) {

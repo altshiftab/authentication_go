@@ -1,6 +1,7 @@
 package provider_claims
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"strings"
 	"testing"
@@ -248,3 +249,53 @@ func TestHasAnyMethodReference(t *testing.T) {
 		t.Errorf("expected an empty set to accept nothing")
 	}
 }
+
+// The "xms_edov" claim is read in whatever form it comes, decoded as the callback decodes an ID
+// token, and never fails the claims around it: the address and the tenant are read all the same.
+func TestMicrosoftClaimsEmailDomainOwnerVerified(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		xmsEdov string
+		want    string
+	}{
+		{name: "absent", want: FlagAbsent},
+		{name: "null", xmsEdov: `null`, want: FlagAbsent},
+		{name: "true", xmsEdov: `true`, want: FlagTrue},
+		{name: "false", xmsEdov: `false`, want: FlagFalse},
+		{name: "the string true", xmsEdov: `"true"`, want: FlagTrue},
+		{name: "the string False", xmsEdov: `"False"`, want: FlagFalse},
+		{name: "one", xmsEdov: `1`, want: FlagTrue},
+		{name: "the string zero", xmsEdov: `"0"`, want: FlagFalse},
+		{name: "a string not understood", xmsEdov: `"maybe"`, want: FlagUnreadable},
+		{name: "an object", xmsEdov: `{"value":true}`, want: FlagUnreadable},
+		{name: "an array", xmsEdov: `[true]`, want: FlagUnreadable},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload := `{"email":"user@example.com","tid":"tenant-1","sub":"subject-1"`
+			if testCase.xmsEdov != "" {
+				payload += `,"xms_edov":` + testCase.xmsEdov
+			}
+			payload += `}`
+
+			var claims MicrosoftClaims
+			if err := json.Unmarshal([]byte(payload), &claims); err != nil {
+				t.Fatalf("json unmarshal: %v", err)
+			}
+			if got := claims.EmailDomainOwnerVerified(); got != testCase.want {
+				t.Errorf("got %q, want %q", got, testCase.want)
+			}
+			if claims.Email != "user@example.com" || claims.Tid != "tenant-1" {
+				t.Errorf("the claims around it were not read: %+v", claims)
+			}
+		})
+	}
+}
+
+// Microsoft's claims say whether the domain is verified; the interface is how the callback asks.
+var _ EmailDomainOwnerVerifier = (*MicrosoftClaims)(nil)

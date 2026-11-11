@@ -86,6 +86,13 @@ type ProviderClaims struct {
 	Amr          []string `json:"amr,omitzero"`
 	Organization string   `json:"organization,omitzero"`
 	Sub          string   `json:"sub,omitzero"`
+	// XmsEdov stands in for Microsoft's claim of the same name, so that the callback's logging of
+	// it is tested through a token.
+	XmsEdov *provider_claims.OptionalFlag `json:"xms_edov,omitzero"`
+}
+
+func (c *ProviderClaims) EmailDomainOwnerVerified() string {
+	return c.XmsEdov.State()
 }
 
 func (c *ProviderClaims) Subject() string {
@@ -284,6 +291,7 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 						// carries none: that is the case a multi-factor requirement must refuse.
 						if inputCode == OauthStrongAuthenticationCode {
 							tokenPayload["amr"] = []string{"pwd", "mfa"}
+							tokenPayload["xms_edov"] = true
 						}
 
 						// An account with no organization carries no identifier, which is the

@@ -544,6 +544,15 @@ func (e *Endpoint[T]) Initialize(
 				)
 			}
 		}
+		// Whether the account's organization verified the domain of its address, where the provider
+		// says so (Microsoft's xms_edov): logged rather than required until the sign-ins show who a
+		// requirement would refuse.
+		if verifier, ok := any(providerClaims).(provider_claims.EmailDomainOwnerVerifier); ok {
+			logAttributes = append(
+				logAttributes,
+				slog.String("email_domain_owner_verified", verifier.EmailDomainOwnerVerified()),
+			)
+		}
 		slog.InfoContext(ctx, "An identity provider authenticated a user.", e.Log.Attrs(logAttributes...)...)
 
 		// A personal account belongs to no organization and so carries no identifier, which is what

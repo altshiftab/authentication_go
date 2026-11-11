@@ -320,6 +320,11 @@ func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hash
 
 	entry := findLogEntry(t, &logBuffer, "An identity provider authenticated a user.")
 
+	// Whether the tenant verified the address's domain, as the token said: logged, not required.
+	if got := entry["email_domain_owner_verified"]; got != "true" {
+		t.Errorf("%s: email_domain_owner_verified = %v, want %q", name, got, "true")
+	}
+
 	// The provider's authentication, which the endpoint's own checks can still refuse after it.
 	wantEvent := map[string]any{
 		"category": []any{"authentication"},
