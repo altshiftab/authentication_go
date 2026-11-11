@@ -11,6 +11,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/log_options"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/callback_endpoint/callback_endpoint_config"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -356,5 +357,72 @@ func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hash
 	}
 	if strongAuthentication, _ := entry["strong_authentication"].(bool); !strongAuthentication {
 		t.Errorf("expected the sign-in to be recorded as strongly authenticated: %v", entry)
+	}
+}
+
+// A sign-in refused for an unverified email domain is still on record: the identity provider's line
+// is written first, with what it said of the domain and that it was required, and the refusal
+// follows it. Checking before the line would leave the refusal unrecorded.
+//
+//nolint:paralleltest // Swaps the global slog default.
+func TestRefusedEmailDomainIsOnRecord(t *testing.T) {
+	var logBuffer bytes.Buffer
+	httpContextExtractor := http_context_extractor.New()
+	logger := altshiftContextLogger.New(
+		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		&altshiftLog.ErrorContextExtractor{
+			ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
+		},
+		httpContextExtractor,
+	)
+	previousLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(previousLogger)
+
+	testEndpoint, err := New[*testing2.ProviderClaims](
+		defaultPath,
+		callback_endpoint_config.WithRequireEmailDomainOwnerVerified(true),
+	)
+	if err != nil {
+		t.Fatalf("new endpoint: %v", err)
+	}
+	if err := testEndpoint.Initialize(testOrigin, oauthConfig, idTokenAuthenticator, sessionManager); err != nil {
+		t.Fatalf("test endpoint initialize: %v", err)
+	}
+	testEndpoint.popOauthFlow = func(_ context.Context, _ string, _ *sql.DB) (*oauth_flow.Flow, error) {
+		expiresAt := time.Now().Add(time.Hour)
+		return &oauth_flow.Flow{
+			Id:          testing2.OauthFlowId,
+			RedirectUrl: testing2.RedirectUrl,
+			State:       testing2.State,
+			ExpiresAt:   &expiresAt,
+		}, nil
+	}
+
+	mux := muxPkg.New(testEndpoint.Endpoint.Endpoint)
+	httpServer := httptest.NewServer(mux)
+	defer httpServer.Close()
+
+	callbackCookie := http.Cookie{Name: testEndpoint.CallbackCookieName, Value: testing2.OauthFlowId} //nolint:gosec // G124: a request cookie; its attributes are never sent.
+	muxTesting.TestArgs(
+		t,
+		&muxTesting.Args{
+			Path:               testEndpoint.Path + "?state=" + testing2.State + "&code=" + testing2.OauthUnverifiedEmailDomainCode,
+			Method:             testEndpoint.Method,
+			Headers:            [][2]string{{"Cookie", callbackCookie.String()}},
+			ExpectedStatusCode: http.StatusForbidden,
+			ExpectedProblemDetail: &problem_detail.Detail{
+				Detail: "The organization the account belongs to has not verified the domain of its email address.",
+			},
+		},
+		httpServer.URL,
+	)
+
+	entry := findLogEntry(t, &logBuffer, "An identity provider authenticated a user.")
+	if got := entry["email_domain_owner_verified"]; got != "false" {
+		t.Errorf("email_domain_owner_verified = %v, want %q", got, "false")
+	}
+	if got := entry["email_domain_owner_verified_required"]; got != true {
+		t.Errorf("email_domain_owner_verified_required = %v, want true", got)
 	}
 }

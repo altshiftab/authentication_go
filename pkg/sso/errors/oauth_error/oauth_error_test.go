@@ -2,6 +2,7 @@ package oauth_error
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
@@ -151,6 +152,12 @@ func TestSummary(t *testing.T) {
 			err:         New("access_denied", "cancel", "AADSTS65004: User declined to consent to access the app.", "https://example.com/error"),
 			wantMessage: "oauth error: access_denied (cancel)",
 		},
+		{
+			name:        "codes not of the kind providers send",
+			err:         New("access_denied: Anna Andersson", strings.Repeat("x", 65), "", ""),
+			wantMessage: "oauth error: unrecognised (unrecognised)",
+		},
+		{name: "an empty code", err: New("", "cancel", "", ""), wantMessage: "oauth error: unrecognised (cancel)"},
 	}
 
 	for _, testCase := range testCases {

@@ -66,8 +66,9 @@ type Config struct {
 	// RequireEmailDomainOwnerVerified refuses an account whose organization has not verified the
 	// domain of its email address, where the provider's claims say so: Microsoft's "xms_edov", which
 	// the app registration has to ask for. Such an address can be anyone's, and the sign-in finds
-	// the account by it. A claim that is absent or unreadable is refused as well. Claims that say
-	// nothing of it, Google's, are not affected; Google's email_verified is required regardless.
+	// the account by it. A claim that is absent or unreadable is refused as well. Only claims that
+	// can say take it -- callback_endpoint.New refuses it for others, such as Google's, whose
+	// email_verified is required regardless.
 	RequireEmailDomainOwnerVerified bool
 
 	// Log is what the endpoint's audit lines say about the person they concern, and what the

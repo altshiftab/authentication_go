@@ -3,6 +3,7 @@ package oauth_error
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -30,15 +31,36 @@ func (e *Error) Error() string {
 }
 
 // Summary is the error as a record of the failed authentication carries it: its code and subcode,
-// which the provider chooses from a set of its own, without the description, which is its free
-// text and can name the account. It is a plain error, which a log writes as its message alone.
+// without the description, the provider's free text, which can name the account. The codes arrive
+// as query parameters of the callback, which anyone holding a flow can set, so one that is not a
+// word of the kind providers send -- letters, digits, '_', '.' and '-', at most 64 of them -- is
+// written as "unrecognised" rather than as given. It is a plain error, which a log writes as its
+// message alone.
 func (e *Error) Summary() error {
 	if e == nil {
 		return nil
 	}
 
+	summary := &Error{Code: recognisedCode(e.Code), Subcode: e.Subcode}
+	if e.Subcode != "" {
+		summary.Subcode = recognisedCode(e.Subcode)
+	}
+
 	//nolint:err113 // Plain, so that the log writes the message alone, with no type or cause.
-	return errors.New(e.codes())
+	return errors.New(summary.codes())
+}
+
+// codePattern is a code of the kind the providers send: access_denied, consent_required, cancel.
+var codePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// recognisedCode is code when it is one of the kind the providers send, and "unrecognised" when
+// it is not.
+func recognisedCode(code string) string {
+	if codePattern.MatchString(code) {
+		return code
+	}
+
+	return "unrecognised"
 }
 
 // codes is the error's code, and its subcode when it has one, as its message opens with them.

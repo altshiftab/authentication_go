@@ -3,6 +3,7 @@ package callback_endpoint
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/callback_endpoint/callback_endpoint_config"
 	"net/http"
 	"net/http/httptest"
@@ -396,6 +397,7 @@ func TestEndpoint_RequireEmailDomainOwnerVerified(t *testing.T) {
 		{name: "verified", code: testing2.OauthStrongAuthenticationCode, required: true, args: admitted()},
 		{name: "not verified", code: testing2.OauthUnverifiedEmailDomainCode, required: true, args: refused()},
 		{name: "not said", code: testing2.OauthCode, required: true, args: refused()},
+		{name: "unreadable", code: testing2.OauthUnreadableEmailDomainCode, required: true, args: refused()},
 		{name: "not verified, not required", code: testing2.OauthUnverifiedEmailDomainCode, args: admitted()},
 		{name: "not said, not required", code: testing2.OauthCode, args: admitted()},
 	}
@@ -408,11 +410,16 @@ func TestEndpoint_RequireEmailDomainOwnerVerified(t *testing.T) {
 		})
 	}
 
-	// Claims that say nothing of the domain, as Google's do not, are not held to it.
+	// Claims that say nothing of the domain, as Google's do not, cannot be held to it: the
+	// requirement is refused when the endpoint is made, rather than enforced nowhere.
 	t.Run("claims that do not say", func(t *testing.T) {
 		t.Parallel()
 
-		runSignInAs[*claimsSilentOnDomain](t, testing2.OauthCode, admitted(), callback_endpoint_config.WithRequireEmailDomainOwnerVerified(true))
+		_, err := New[*claimsSilentOnDomain](defaultPath, callback_endpoint_config.WithRequireEmailDomainOwnerVerified(true))
+		if !errors.Is(err, ssoErrors.ErrEmailDomainOwnerNotSaid) {
+			t.Errorf("new: got %v, want %v", err, ssoErrors.ErrEmailDomainOwnerNotSaid)
+		}
+		runSignInAs[*claimsSilentOnDomain](t, testing2.OauthCode, admitted())
 	})
 }
 

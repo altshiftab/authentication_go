@@ -599,8 +599,9 @@ func (e *Endpoint[T]) Initialize(
 		}
 
 		// An address in a domain the account's organization has not verified can be anyone's, and
-		// the account is found by its address. Claims that say nothing of it are not held to it.
-		if e.RequireEmailDomainOwnerVerified && emailDomainOwnerVerified != "" && emailDomainOwnerVerified != provider_claims.FlagTrue {
+		// the account is found by its address. New takes the requirement only of claims that can say;
+		// claims that cannot are refused here too, rather than admitted unchecked.
+		if e.RequireEmailDomainOwnerVerified && emailDomainOwnerVerified != provider_claims.FlagTrue {
 			return nil, &response_error.ResponseError{
 				ClientError: altshiftErrors.NewWithTrace(ssoErrors.ErrForbiddenUser, emailDomainOwnerVerified),
 				ProblemDetail: problem_detail.New(
@@ -731,6 +732,16 @@ func New[T provider_claims.ProviderClaims](path string, options ...callback_endp
 	}
 
 	config := callback_endpoint_config.New(options...)
+
+	// Required of claims that cannot say, it would be enforced nowhere, which is refused here rather
+	// than found out when a sign-in is admitted without it.
+	if config.RequireEmailDomainOwnerVerified {
+		var claims T
+		if _, ok := any(claims).(provider_claims.EmailDomainOwnerVerifier); !ok {
+			return nil, altshiftErrors.NewWithTrace(fmt.Errorf("%w: %T", ssoErrors.ErrEmailDomainOwnerNotSaid, claims))
+		}
+	}
+
 	return &Endpoint[T]{
 		Endpoint: &initialization_endpoint.Endpoint{
 			Endpoint: &endpoint.Endpoint{

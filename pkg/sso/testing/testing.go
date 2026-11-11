@@ -70,6 +70,7 @@ const (
 	OauthUnverifiedEmailAddressCode = "unverified_email_address"
 	OauthEmptyEmailAddressCode      = "empty_email_address"
 	OauthUnverifiedEmailDomainCode  = "unverified_email_domain"
+	OauthUnreadableEmailDomainCode  = "unreadable_email_domain"
 
 	JwksPath  = "/.well-known/jwks.json"
 	TokenPath = "/oauth/token" //nolint:gosec // G101: a path, not a credential.
@@ -298,6 +299,11 @@ func SetUp() (*session_manager.Manager, *authenticator.AuthenticatorWithKeyHandl
 						// An address in a domain the account's organization has not verified.
 						if inputCode == OauthUnverifiedEmailDomainCode {
 							tokenPayload["xms_edov"] = false
+						}
+
+						// The claim in a form not understood.
+						if inputCode == OauthUnreadableEmailDomainCode {
+							tokenPayload["xms_edov"] = "maybe"
 						}
 
 						// An account with no organization carries no identifier, which is the
