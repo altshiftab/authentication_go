@@ -360,12 +360,61 @@ func testSignInLoggingIdentifiesUser(t *testing.T, name string, hasher *pii_hash
 	}
 }
 
-// A sign-in refused for an unverified email domain is still on record: the identity provider's line
-// is written first, with what it said of the domain and that it was required, and the refusal
-// follows it. Checking before the line would leave the refusal unrecorded.
+// A refused sign-in is still on record: the identity provider's line is written first, with what it
+// said and what was required of it, and the refusal follows it. Checking before the line would leave
+// the refusal unrecorded -- for an address the provider did not verify, as for an email domain the
+// account's organization has not verified.
 //
 //nolint:paralleltest // Swaps the global slog default.
-func TestRefusedEmailDomainIsOnRecord(t *testing.T) {
+func TestRefusedSignInIsOnRecord(t *testing.T) {
+	const addressDetail = "The email address that is tied to the id token is unverified or invalid."
+	const domainDetail = "The organization the account belongs to has not verified the domain of its email address."
+
+	testCases := []struct {
+		name       string
+		code       string
+		options    []callback_endpoint_config.Option
+		detail     string
+		wantFields map[string]any
+	}{
+		{
+			name:       "an email domain the organization has not verified",
+			code:       testing2.OauthUnverifiedEmailDomainCode,
+			options:    []callback_endpoint_config.Option{callback_endpoint_config.WithRequireEmailDomainOwnerVerified(true)},
+			detail:     domainDetail,
+			wantFields: map[string]any{"email_domain_owner_verified": "false", "email_domain_owner_verified_required": true, "email_address_verified": true},
+		},
+		{
+			// Microsoft's and Google's claims refuse an address that is missing as they refuse one
+			// that is unverified, with ErrForbiddenUser, so this is the path both take.
+			name:       "an address the provider did not verify",
+			code:       testing2.OauthUnverifiedEmailAddressCode,
+			detail:     addressDetail,
+			wantFields: map[string]any{"email_address_verified": false},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			entry := refusedSignInEntry(t, testCase.code, testCase.detail, testCase.options...)
+			for field, want := range testCase.wantFields {
+				if got := entry[field]; got != want {
+					t.Errorf("%s = %v, want %v", field, got, want)
+				}
+			}
+			// The account is named by its id whatever the address.
+			if user, _ := entry["user"].(map[string]any); user["id"] != testing2.Subject {
+				t.Errorf("user = %v, want the id %q", entry["user"], testing2.Subject)
+			}
+		})
+	}
+}
+
+// refusedSignInEntry drives a sign-in with code that the endpoint refuses with detail, and returns
+// the identity provider's line it wrote before refusing.
+func refusedSignInEntry(t *testing.T, code string, detail string, options ...callback_endpoint_config.Option) map[string]any {
+	t.Helper()
+
 	var logBuffer bytes.Buffer
 	httpContextExtractor := http_context_extractor.New()
 	logger := altshiftContextLogger.New(
@@ -379,10 +428,7 @@ func TestRefusedEmailDomainIsOnRecord(t *testing.T) {
 	slog.SetDefault(logger)
 	defer slog.SetDefault(previousLogger)
 
-	testEndpoint, err := New[*testing2.ProviderClaims](
-		defaultPath,
-		callback_endpoint_config.WithRequireEmailDomainOwnerVerified(true),
-	)
+	testEndpoint, err := New[*testing2.ProviderClaims](defaultPath, options...)
 	if err != nil {
 		t.Fatalf("new endpoint: %v", err)
 	}
@@ -407,22 +453,14 @@ func TestRefusedEmailDomainIsOnRecord(t *testing.T) {
 	muxTesting.TestArgs(
 		t,
 		&muxTesting.Args{
-			Path:               testEndpoint.Path + "?state=" + testing2.State + "&code=" + testing2.OauthUnverifiedEmailDomainCode,
-			Method:             testEndpoint.Method,
-			Headers:            [][2]string{{"Cookie", callbackCookie.String()}},
-			ExpectedStatusCode: http.StatusForbidden,
-			ExpectedProblemDetail: &problem_detail.Detail{
-				Detail: "The organization the account belongs to has not verified the domain of its email address.",
-			},
+			Path:                  testEndpoint.Path + "?state=" + testing2.State + "&code=" + code,
+			Method:                testEndpoint.Method,
+			Headers:               [][2]string{{"Cookie", callbackCookie.String()}},
+			ExpectedStatusCode:    http.StatusForbidden,
+			ExpectedProblemDetail: &problem_detail.Detail{Detail: detail},
 		},
 		httpServer.URL,
 	)
 
-	entry := findLogEntry(t, &logBuffer, "An identity provider authenticated a user.")
-	if got := entry["email_domain_owner_verified"]; got != "false" {
-		t.Errorf("email_domain_owner_verified = %v, want %q", got, "false")
-	}
-	if got := entry["email_domain_owner_verified_required"]; got != true {
-		t.Errorf("email_domain_owner_verified_required = %v, want true", got)
-	}
+	return findLogEntry(t, &logBuffer, "An identity provider authenticated a user.")
 }

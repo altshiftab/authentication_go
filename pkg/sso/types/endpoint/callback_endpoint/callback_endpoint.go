@@ -476,23 +476,27 @@ func (e *Endpoint[T]) Initialize(
 		// including a refusal — says which account it concerned. Attached to the HTTP context
 		// rather than to one message, so it reaches the request log too and correlates with the
 		// rest of the service by the same fields.
+		// An address the provider did not verify, or gave none of, is refused -- but only once the
+		// identity provider's line is written, as the checks below are, so that the record of the
+		// sign-in says the address was what it was refused for, and names the account by its id.
 		emailAddress, err := providerClaims.VerifiedEmailAddress()
+		var addressRefusal *response_error.ResponseError
 		if err != nil {
 			wrappedErr := altshiftErrors.New(
 				fmt.Errorf("provider claims verified email address: %w", err),
 				providerClaims.Subject(),
 			)
-			if errors.Is(err, ssoErrors.ErrForbiddenUser) {
-				return nil, &response_error.ResponseError{
-					ProblemDetail: problem_detail.New(
-						http.StatusForbidden,
-						problem_detail_config.WithDetail("The email address that is tied to the id token is unverified or invalid."),
-					),
-				}
+			if !errors.Is(err, ssoErrors.ErrForbiddenUser) {
+				return nil, &response_error.ResponseError{ServerError: wrappedErr}
 			}
-			return nil, &response_error.ResponseError{ServerError: wrappedErr}
-		}
-		if emailAddress == "" {
+			addressRefusal = &response_error.ResponseError{
+				ClientError: wrappedErr,
+				ProblemDetail: problem_detail.New(
+					http.StatusForbidden,
+					problem_detail_config.WithDetail("The email address that is tied to the id token is unverified or invalid."),
+				),
+			}
+		} else if emailAddress == "" {
 			return nil, &response_error.ResponseError{
 				ServerError: altshiftErrors.NewWithTrace(empty_error.New("email address")),
 			}
@@ -527,6 +531,7 @@ func (e *Endpoint[T]) Initialize(
 				"",
 			),
 			slog.Group("user", e.Log.UserAttrs(providerClaims.Subject(), emailAddress)...),
+			slog.Bool("email_address_verified", addressRefusal == nil),
 			slog.Bool("strong_authentication", strongAuthentication),
 			slog.Bool("strong_authentication_required", e.RequireStrongAuthentication),
 			slog.Bool("organization_required", e.RequireOrganization),
@@ -557,6 +562,10 @@ func (e *Endpoint[T]) Initialize(
 			)
 		}
 		slog.InfoContext(ctx, "An identity provider authenticated a user.", e.Log.Attrs(logAttributes...)...)
+
+		if addressRefusal != nil {
+			return nil, addressRefusal
+		}
 
 		// A personal account belongs to no organization and so carries no identifier, which is what
 		// makes this keep consumer accounts out.

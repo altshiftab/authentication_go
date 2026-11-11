@@ -196,6 +196,9 @@ func TestSignInLogging(t *testing.T) {
 			if id, _ := user["id"].(string); id != ssoTesting.Subject {
 				t.Errorf("%s: user.id = %v, want %s", testCase.name, user["id"], ssoTesting.Subject)
 			}
+			if got := entry["email_address_verified"]; got != true {
+				t.Errorf("%s: email_address_verified = %v, want true", testCase.name, got)
+			}
 
 			// Nested as ECS organization.id: a top-level string clashes with the organization object mapping.
 			organization, ok := entry["organization"].(map[string]any)
@@ -429,4 +432,74 @@ func findLogEntry(t *testing.T, buffer *bytes.Buffer, message string) map[string
 
 	t.Fatalf("no log entry with msg %q found in:\n%s", message, buffer.String())
 	return nil
+}
+
+// An address the provider did not verify is refused, but only once the identity provider's line is
+// written, so that the refusal is on record with the account it concerned and what it was refused for.
+//
+//nolint:paralleltest // Swaps the global slog default.
+func TestRefusedAddressIsOnRecord(t *testing.T) {
+	var logBuffer bytes.Buffer
+	httpContextExtractor := http_context_extractor.New()
+	logger := altshiftContextLogger.New(
+		slog.NewJSONHandler(&logBuffer, &slog.HandlerOptions{Level: slog.LevelInfo}),
+		&altshiftLog.ErrorContextExtractor{
+			ContextExtractors: []altshiftLog.ContextExtractor{httpContextExtractor},
+		},
+		httpContextExtractor,
+	)
+	previousLogger := slog.Default()
+	slog.SetDefault(logger)
+	defer slog.SetDefault(previousLogger)
+
+	testEndpoint, err := New[*ssoTesting.ProviderClaims](defaultPath)
+	if err != nil {
+		t.Fatalf("new endpoint: %v", err)
+	}
+	if err := testEndpoint.Initialize(idTokenAuthenticator, sessionManager, testAudience, testIssuers); err != nil {
+		t.Fatalf("test endpoint initialize: %v", err)
+	}
+	mux := muxPkg.New(testEndpoint.Endpoint.Endpoint)
+	httpServer := httptest.NewServer(mux)
+	defer httpServer.Close()
+
+	token := altshiftJwtToken.Token{
+		Header: map[string]any{"typ": "JWT", "kid": ssoTesting.KeyId},
+		Payload: map[string]any{
+			"iss":           "aux",
+			"aud":           "test-client",
+			"iat":           time.Now().Add(-1 * time.Minute).Unix(),
+			"nbf":           time.Now().Add(-1 * time.Minute).Unix(),
+			"exp":           time.Now().Add(30 * time.Minute).Unix(),
+			"verified":      false,
+			"email_address": ssoTesting.EmailAddress,
+			"sub":           ssoTesting.Subject,
+		},
+	}
+	tokenString, err := token.Encode(idTokenMethod)
+	if err != nil {
+		t.Fatalf("token encode: %v", err)
+	}
+
+	muxTesting.TestArgs(
+		t,
+		&muxTesting.Args{
+			Path:               testEndpoint.Path,
+			Method:             testEndpoint.Method,
+			Headers:            [][2]string{{"Authorization", fmt.Sprintf("Bearer %s", tokenString)}},
+			ExpectedStatusCode: http.StatusForbidden,
+			ExpectedProblemDetail: &problem_detail.Detail{
+				Detail: "The email address that is tied to the id token is unverified or invalid.",
+			},
+		},
+		httpServer.URL,
+	)
+
+	entry := findSignInLogEntry(t, &logBuffer)
+	if got := entry["email_address_verified"]; got != false {
+		t.Errorf("email_address_verified = %v, want false", got)
+	}
+	if user, _ := entry["user"].(map[string]any); user["id"] != ssoTesting.Subject {
+		t.Errorf("user = %v, want the id %q", entry["user"], ssoTesting.Subject)
+	}
 }
