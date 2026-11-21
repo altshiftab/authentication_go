@@ -11,6 +11,11 @@ type Config struct {
 	// that no other one takes it -- including one on an older library, which would not hold a bound
 	// token to its proof.
 	Audience string
+
+	// ApiKeyId names the registered key the token is minted against, written into the token as
+	// "client_id", so that an authorizer can take one key's sessions and not another's. Empty names no
+	// key, as a browser session's does.
+	ApiKeyId string
 }
 
 type Option func(*Config)
@@ -33,5 +38,11 @@ func WithKeyThumbprint(keyThumbprint string) Option {
 func WithAudience(audience string) Option {
 	return func(config *Config) {
 		config.Audience = audience
+	}
+}
+
+func WithApiKeyId(apiKeyId string) Option {
+	return func(config *Config) {
+		config.ApiKeyId = apiKeyId
 	}
 }

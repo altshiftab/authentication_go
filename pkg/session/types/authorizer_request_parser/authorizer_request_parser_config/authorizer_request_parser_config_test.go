@@ -26,6 +26,10 @@ func TestNew(t *testing.T) {
 	if config.AllowedRoles != nil || config.AllowedTenantId != "" || config.SuperAdminRoles != nil {
 		t.Errorf("expected zero role config, got %+v", config)
 	}
+	// Every key of an account reaches an authorizer that does not say otherwise, as before.
+	if config.RestrictApiKeys || config.ApiKeyIds != nil {
+		t.Errorf("expected no api key restriction, got %+v", config)
+	}
 
 	// The methods a browser session is come by, and nothing else: a default that admits whatever
 	// the library learns to mint next would widen every authorizer already written.
@@ -91,6 +95,25 @@ func TestOptions(t *testing.T) {
 			check: func(t *testing.T, config *Config) {
 				if config.AllowedTenantId != "tenant-id" {
 					t.Errorf("allowed tenant id: got %q", config.AllowedTenantId)
+				}
+			},
+		},
+		{
+			name:   "with api key ids",
+			option: WithApiKeyIds("key-a", "key-b"),
+			check: func(t *testing.T, config *Config) {
+				if !config.RestrictApiKeys || !slices.Equal(config.ApiKeyIds, []string{"key-a", "key-b"}) {
+					t.Errorf("api key ids: got %v, restricted %v", config.ApiKeyIds, config.RestrictApiKeys)
+				}
+			},
+		},
+		{
+			// No key yet: the endpoint takes none, which an empty list must not read as "any".
+			name:   "with no api key ids",
+			option: WithApiKeyIds(),
+			check: func(t *testing.T, config *Config) {
+				if !config.RestrictApiKeys || len(config.ApiKeyIds) != 0 {
+					t.Errorf("api key ids: got %v, restricted %v", config.ApiKeyIds, config.RestrictApiKeys)
 				}
 			},
 		},

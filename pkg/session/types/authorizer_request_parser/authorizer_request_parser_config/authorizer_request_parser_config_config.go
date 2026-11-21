@@ -38,6 +38,11 @@ type Config struct {
 
 	// RequireBoundToken refuses tokens bound to no key.
 	RequireBoundToken bool
+
+	// ApiKeyIds are the registered keys whose sessions the authorizer takes, when RestrictApiKeys is
+	// set; see WithApiKeyIds.
+	ApiKeyIds       []string
+	RestrictApiKeys bool
 }
 
 type Option func(*Config)
@@ -107,6 +112,21 @@ func WithProofVerifier(proofVerifier *proof_verifier.Verifier) Option {
 func WithRequireBoundToken(requireBoundToken bool) Option {
 	return func(config *Config) {
 		config.RequireBoundToken = requireBoundToken
+	}
+}
+
+// WithApiKeyIds restricts the sessions minted against a key to those of the keys named, by the id the
+// key's session names it by ("client_id": the key's RFC 7638 thumbprint, which the key's settings
+// list). A key session naming no key -- minted by a library from before the claim -- is refused, and
+// so is every key session when no id is given: an endpoint whose key is not registered yet takes none.
+// A refusal is a 403, as a role's is, and no super admin role lifts it.
+//
+// Sessions come by other ways than a key are left to WithAuthenticationMethods. Without this option
+// every key of an account reaches the authorizer, as before.
+func WithApiKeyIds(apiKeyIds ...string) Option {
+	return func(config *Config) {
+		config.ApiKeyIds = apiKeyIds
+		config.RestrictApiKeys = true
 	}
 }
 

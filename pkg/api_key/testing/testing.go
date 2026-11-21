@@ -339,6 +339,9 @@ type Session struct {
 
 	// AuthenticationMethods is the token's "amr"; a browser's sign-in where it is left empty.
 	AuthenticationMethods []string
+
+	// ApiKeyId is the registered key a key's session names, as "client_id"; none where it is empty.
+	ApiKeyId string
 }
 
 // Session is a session for the account, naming a sign-in that is not in the database.
@@ -412,6 +415,7 @@ func (session *Session) Token() (string, error) {
 	if sessionToken == nil {
 		return "", altshiftErrors.NewWithTrace(nil_error.New("session token"))
 	}
+	sessionToken.ApiKeyId = session.ApiKeyId
 
 	sessionTokenString, err := sessionToken.Encode(SessionMethod)
 	if err != nil {
@@ -443,13 +447,18 @@ func SessionManager(db *sql.DB) (*session_manager.Manager, error) {
 
 // ApiKeyAuthorizer is an authorizer as an endpoint for API clients has one: the token as a bearer
 // token, minted against a key and in no other way.
-func ApiKeyAuthorizer() (*authorizer_request_parser.Parser, error) {
+func ApiKeyAuthorizer(options ...authorizer_request_parser_config.Option) (*authorizer_request_parser.Parser, error) {
 	authorizer, err := authorizer_request_parser.New(
 		SessionMethod,
 		Issuer,
 		Audience,
-		authorizer_request_parser_config.WithTokenExtractor(token_header_extractor.New()),
-		authorizer_request_parser_config.WithAuthenticationMethods(authentication_method.ApiKey),
+		append(
+			[]authorizer_request_parser_config.Option{
+				authorizer_request_parser_config.WithTokenExtractor(token_header_extractor.New()),
+				authorizer_request_parser_config.WithAuthenticationMethods(authentication_method.ApiKey),
+			},
+			options...,
+		)...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("authorizer request parser new: %w", err)

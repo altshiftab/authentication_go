@@ -1074,7 +1074,9 @@ func TestManager_MintToken(t *testing.T) {
 	}
 }
 
-func TestManager_MintToken_KeyThumbprint(t *testing.T) {
+// TestManager_MintToken_KeyClaims: the key a token is bound to ("cnf.jkt") and the registered key it
+// was minted by ("client_id"), each written only when given.
+func TestManager_MintToken_KeyClaims(t *testing.T) {
 	t.Parallel()
 
 	signer := newTestSigner(t)
@@ -1083,12 +1085,18 @@ func TestManager_MintToken_KeyThumbprint(t *testing.T) {
 		name              string
 		options           []mint_token_config.Option
 		wantKeyThumbprint string
+		wantApiKeyId      string
 	}{
 		{name: "a bearer token, as before"},
 		{
 			name:              "a token bound to a key",
 			options:           []mint_token_config.Option{mint_token_config.WithKeyThumbprint("thumbprint")},
 			wantKeyThumbprint: "thumbprint",
+		},
+		{
+			name:         "a token naming the key it was minted by",
+			options:      []mint_token_config.Option{mint_token_config.WithApiKeyId("key-id")},
+			wantApiKeyId: "key-id",
 		},
 	}
 
@@ -1139,6 +1147,12 @@ func TestManager_MintToken_KeyThumbprint(t *testing.T) {
 			}
 			if _, hasCnf := payload["cnf"]; hasCnf != (testCase.wantKeyThumbprint != "") {
 				t.Errorf("%s: cnf present = %v", testCase.name, hasCnf)
+			}
+			if sessionToken.ApiKeyId != testCase.wantApiKeyId || decoded.ApiKeyId != testCase.wantApiKeyId {
+				t.Errorf("%s: api key id %q, encoded %q, want %q", testCase.name, sessionToken.ApiKeyId, decoded.ApiKeyId, testCase.wantApiKeyId)
+			}
+			if _, hasClientId := payload["client_id"]; hasClientId != (testCase.wantApiKeyId != "") {
+				t.Errorf("%s: client_id present = %v", testCase.name, hasClientId)
 			}
 		})
 	}

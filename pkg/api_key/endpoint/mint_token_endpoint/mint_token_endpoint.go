@@ -8,6 +8,10 @@
 // "amr" as having been minted against a key. That mark is what keeps it out of the endpoints meant
 // for a signed-in person: every authorizer takes the browser methods unless it says otherwise.
 //
+// It names the key it was minted by, too, in "client_id": every key of an account mints the same
+// session otherwise, and an authorizer made for one job's key
+// (authorizer_request_parser_config.WithApiKeyIds) would take any other job's.
+//
 // It is not the OAuth token endpoint, pkg/oauth/types/endpoint/token_endpoint, which redeems what an
 // authorization server granted; this one redeems nothing but a signature.
 package mint_token_endpoint
@@ -29,6 +33,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/mint_token_config"
 	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
@@ -210,10 +215,12 @@ func (e *Endpoint) Initialize(sessionManager *session_manager.Manager, db *sql.D
 			return nil, &response_error.ResponseError{ServerError: wrappedErr}
 		}
 
+		// The session names the key it was minted by: the id the signature was verified against.
 		sessionToken, sessionTokenString, responseError := sessionManager.MintToken(
 			authentication,
 			authentication_method.ApiKey,
 			e.TokenLifetime,
+			mint_token_config.WithApiKeyId(verifiedAssertion.KeyId),
 		)
 		if responseError != nil {
 			return nil, responseError

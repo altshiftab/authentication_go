@@ -21,6 +21,9 @@ import (
 	"github.com/altshiftab/utils_go/pkg/utils"
 )
 
+// clientIdClaim names the registered key a session was minted by.
+const clientIdClaim = "client_id"
+
 type Token struct {
 	Claims              *session_claims.Claims
 	AuthenticationId    string
@@ -38,6 +41,15 @@ type Token struct {
 	// It sits beside Claims rather than in them because session_claims is utils_go's and does not
 	// know the claim: Encode writes it into the payload, and ParsePayload reads it back.
 	KeyThumbprint string
+
+	// ApiKeyId is the registered key a session minted against a key was minted by: the key's id, its
+	// RFC 7638 thumbprint, written into the token as "client_id" (RFC 8693 §4.3; RFC 7523 makes the
+	// assertion's subject, which is that id, the client). Empty for every other session, and for one
+	// minted by a library from before the claim, which named no key.
+	//
+	// It sits beside Claims for the reason KeyThumbprint does. An authorizer restricted to some keys
+	// (authorizer_request_parser_config.WithApiKeyIds) admits a key's session by it.
+	ApiKeyId string
 }
 
 // GetUser is the user the request log names for a request carrying the session: by the account id,
@@ -110,6 +122,13 @@ func (t *Token) Encode(signer interfaces.NamedSigner) (string, error) {
 			return "", altshiftErrors.NewWithTrace(nil_error.New("payload"))
 		}
 		payload["cnf"] = map[string]any{"jkt": keyThumbprint}
+	}
+
+	if apiKeyId := t.ApiKeyId; apiKeyId != "" {
+		if payload == nil {
+			return "", altshiftErrors.NewWithTrace(nil_error.New("payload"))
+		}
+		payload[clientIdClaim] = apiKeyId
 	}
 
 	token := altshiftJwtToken.Token{Payload: payload}
@@ -204,12 +223,15 @@ func (t *Token) Refresh(
 	return &newSessionToken, nil
 }
 
-// ParsePayload reads a token from a verified token's payload: its session claims, as Parse does, and
-// the key the token is bound to, if any.
+// ParsePayload reads a token from a verified token's payload: its session claims, as Parse does, the
+// key the token is bound to, if any, and the registered key that minted it, if any.
 //
 // A "cnf" that is there and cannot be read is a parse error, not a token without a binding: a
 // confirmation this library cannot check must never come out as a bearer token. RFC 7800 allows
 // members other than "jkt"; they are ignored, and "jkt" is required.
+//
+// A "client_id" that is there and is not a string naming something is a parse error too, rather than
+// a session that names no key.
 func ParsePayload(payload map[string]any) (*Token, error) {
 	if payload == nil {
 		return nil, nil
@@ -249,6 +271,18 @@ func ParsePayload(payload map[string]any) (*Token, error) {
 		}
 
 		token.KeyThumbprint = keyThumbprint
+	}
+
+	if clientId, ok := payload[clientIdClaim]; ok {
+		apiKeyId, ok := clientId.(string)
+		if !ok || apiKeyId == "" {
+			return nil, altshiftErrors.NewWithTrace(
+				fmt.Errorf("%w: the client_id claim names no key", altshiftErrors.ErrParseError),
+				clientId,
+			)
+		}
+
+		token.ApiKeyId = apiKeyId
 	}
 
 	return token, nil

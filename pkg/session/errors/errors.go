@@ -10,6 +10,8 @@ var (
 	ErrTenantNotAllowed = errors.New("tenant not allowed")
 	// None of the holder's roles is one an authorizer allows.
 	ErrRolesNotAllowed = errors.New("roles not allowed")
+	// The registered key a session was minted by is not one an authorizer allows.
+	ErrApiKeyNotAllowed = errors.New("api key not allowed")
 	// A refresh proof names a challenge the store does not hold. The challenge is single use, so a
 	// browser replaying one it has already spent produces this; it is the proof that is at fault,
 	// not the store.

@@ -47,6 +47,11 @@ func makeCookie(signer altshiftCryptoInterfaces.NamedSigner) string {
 // makeCookieWithMethods is makeCookie with the "amr" the token carries spelled out, which is what
 // decides whether an authorizer accepts it at all.
 func makeCookieWithMethods(signer altshiftCryptoInterfaces.NamedSigner, methods ...string) string {
+	return makeCookieOfKey(signer, "", methods...)
+}
+
+// makeCookieOfKey is makeCookieWithMethods for a session naming the registered key it was minted by.
+func makeCookieOfKey(signer altshiftCryptoInterfaces.NamedSigner, apiKeyId string, methods ...string) string {
 	if utils.IsNil(signer) {
 		panic(altshiftErrors.NewWithTrace(nil_error.New("signer")))
 	}
@@ -76,6 +81,7 @@ func makeCookieWithMethods(signer altshiftCryptoInterfaces.NamedSigner, methods 
 	if sessionToken == nil {
 		panic(altshiftErrors.NewWithTrace(nil_error.New("session token")))
 	}
+	sessionToken.ApiKeyId = apiKeyId
 
 	sessionTokenString, err := sessionToken.Encode(signer)
 	if err != nil {
@@ -269,7 +275,7 @@ func TestNew(t *testing.T) {
 	)
 
 	opts := []altshiftTestingCmp.Option{
-		altshiftTestingCmp.IgnoreFields(Parser{}, "verifier", "JwtExtractor", "proofVerifier", "requireBoundToken"),
+		altshiftTestingCmp.IgnoreFields(Parser{}, "verifier", "JwtExtractor", "proofVerifier", "requireBoundToken", "apiKeyIds", "restrictApiKeys"),
 	}
 
 	type args struct {
@@ -307,6 +313,15 @@ func TestNew(t *testing.T) {
 			name:    "empty audience",
 			args:    args{verifier: validMethod, audience: "", issuer: issuer},
 			wantErr: empty_error.New("audience"),
+		},
+		{
+			// A list read from configuration with a stray comma: told at startup.
+			name: "an empty api key id",
+			args: args{
+				verifier: validMethod, audience: audience, issuer: issuer,
+				options: []authorizer_request_parser_config.Option{authorizer_request_parser_config.WithApiKeyIds("key-a", "")},
+			},
+			wantErr: empty_error.New("api key id"),
 		},
 	}
 	for _, testCase := range tests {

@@ -570,6 +570,9 @@ func (m *Manager) RefreshSession(
 //
 // mint_token_config.WithAudience names the one service the token is for, in place of the cookie
 // domain every service sharing the session accepts.
+//
+// mint_token_config.WithApiKeyId names the registered key the token is minted against, so that an
+// authorizer restricted to some keys can tell its sessions from another key's.
 func (m *Manager) MintToken(
 	authentication *authenticationPkg.Authentication,
 	authenticationMethod string,
@@ -737,6 +740,7 @@ func (m *Manager) MintToken(
 	}
 
 	sessionToken.KeyThumbprint = config.KeyThumbprint
+	sessionToken.ApiKeyId = config.ApiKeyId
 
 	sessionTokenString, err := sessionToken.Encode(signer)
 	if err != nil {

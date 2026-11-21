@@ -25,6 +25,7 @@ import (
 	apiKeyTesting "github.com/altshiftab/authentication_go/pkg/api_key/testing"
 	apiKeyTypes "github.com/altshiftab/authentication_go/pkg/api_key/types"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
+	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	altshiftCryptoEddsa "github.com/altshiftab/utils_go/pkg/crypto/eddsa"
 	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
@@ -358,6 +359,10 @@ func TestEndpoint(t *testing.T) {
 		if amr := sessionToken.Claims.AuthenticationMethods; !slices.Equal(amr, []string{authentication_method.ApiKey}) {
 			t.Errorf("amr: got %v, want [%s]", amr, authentication_method.ApiKey)
 		}
+		// Named by the key it was minted by, which is the key's id.
+		if sessionToken.ApiKeyId != c.key.Id {
+			t.Errorf("api key id: got %q, want the key's %q", sessionToken.ApiKeyId, c.key.Id)
+		}
 
 		// And the other direction: the browser's own credential is refused here.
 		browserToken, err := account.Session().Token()
@@ -551,6 +556,34 @@ func TestClient(t *testing.T) {
 			}
 			if !slices.Equal(sessionToken.Roles, account.Roles) {
 				t.Errorf("roles: got %v, want %v", sessionToken.Roles, account.Roles)
+			}
+
+			// The session names its key, and the account's other key is not it: an authorizer for this
+			// key takes it, and one for any other key of the account does not.
+			if sessionToken.ApiKeyId != key.Id {
+				t.Errorf("api key id: got %q, want the key's %q", sessionToken.ApiKeyId, key.Id)
+			}
+			for _, restriction := range []struct {
+				ids        []string
+				wantStatus int
+			}{
+				{ids: []string{key.Id}},
+				{ids: []string{"another key of the account"}, wantStatus: http.StatusForbidden},
+			} {
+				restricted, err := apiKeyTesting.ApiKeyAuthorizer(authorizer_request_parser_config.WithApiKeyIds(restriction.ids...))
+				if err != nil {
+					t.Fatalf("api key authorizer: %v", err)
+				}
+				_, responseError := restricted.Parse(bearerRequest(t, token.AccessToken))
+				status := 0
+				if responseError != nil && responseError.ProblemDetail != nil {
+					status = responseError.ProblemDetail.Status
+				} else if responseError != nil {
+					status = -1
+				}
+				if status != restriction.wantStatus {
+					t.Errorf("restricted to %v: status %d, want %d", restriction.ids, status, restriction.wantStatus)
+				}
 			}
 
 			// The client's own assertion presented again is a replay, refused as one.

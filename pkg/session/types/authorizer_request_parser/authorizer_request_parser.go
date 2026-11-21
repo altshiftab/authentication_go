@@ -10,6 +10,7 @@ import (
 	dpopErrors "github.com/altshiftab/authentication_go/pkg/dpop/errors"
 	"github.com/altshiftab/authentication_go/pkg/dpop/types/proof_verifier"
 	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
+	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
@@ -43,6 +44,8 @@ type Parser struct {
 	verifier          altshiftCryptoInterfaces.NamedVerifier
 	proofVerifier     *proof_verifier.Verifier
 	requireBoundToken bool
+	apiKeyIds         []string
+	restrictApiKeys   bool
 }
 
 // SchemeReporter is implemented by a token extractor that reads an HTTP authentication scheme, so
@@ -97,6 +100,18 @@ func (p *Parser) Parse(request *http.Request) (*session_token.Token, *response_e
 		return nil, responseError
 	}
 
+	// Apart from Admits, which a super admin role passes: the key restriction is about the credential
+	// the session was minted with, not about who holds it.
+	if err := p.admitsApiKey(sessionToken); err != nil {
+		return nil, &response_error.ResponseError{
+			ProblemDetail: problem_detail.New(
+				http.StatusForbidden,
+				problem_detail_config.WithDetail("The session was minted by a key this endpoint does not take."),
+			),
+			ClientError: err,
+		}
+	}
+
 	if err := p.Admits(sessionToken.Roles, sessionToken.TenantId); err != nil {
 		if errors.Is(err, sessionErrors.ErrTenantNotAllowed) {
 			return nil, &response_error.ResponseError{
@@ -147,6 +162,34 @@ func (p *Parser) Admits(roles []string, tenantId string) error {
 			}
 		}
 		return sessionErrors.ErrRolesNotAllowed
+	}
+
+	return nil
+}
+
+// admitsApiKey reports whether a session minted against a key was minted by one the authorizer takes,
+// when it is restricted to some; any other session it leaves alone. The refusal is
+// errors.ErrApiKeyNotAllowed, with the key the session names.
+func (p *Parser) admitsApiKey(sessionToken *session_token.Token) error {
+	if !p.restrictApiKeys {
+		return nil
+	}
+	// Restricted, a session whose method cannot be told is refused rather than let through.
+	if sessionToken == nil || sessionToken.Claims == nil {
+		return altshiftErrors.NewWithTrace(
+			fmt.Errorf("%w: %w", sessionErrors.ErrApiKeyNotAllowed, nil_error.New("session token claims")),
+		)
+	}
+	if !slices.Contains(sessionToken.Claims.AuthenticationMethods, authentication_method.ApiKey) {
+		return nil
+	}
+
+	apiKeyId := sessionToken.ApiKeyId
+	if apiKeyId == "" || !slices.Contains(p.apiKeyIds, apiKeyId) {
+		return altshiftErrors.NewWithTrace(
+			fmt.Errorf("%w: the session's key is not one the authorizer takes", sessionErrors.ErrApiKeyNotAllowed),
+			apiKeyId,
+		)
 	}
 
 	return nil
@@ -315,6 +358,12 @@ func New(
 
 	config := authorizer_request_parser_config.New(options...)
 
+	// An empty id would name a key no session can: a list read from configuration with a stray comma
+	// is told here, rather than by a job refused at its next run.
+	if config.RestrictApiKeys && slices.Contains(config.ApiKeyIds, "") {
+		return nil, altshiftErrors.NewWithTrace(empty_error.New("api key id"))
+	}
+
 	// Both refused here, at startup, rather than at the first request that would find out: an
 	// authorizer that requires bound tokens, or reads the DPoP scheme, with nothing to check a proof
 	// would refuse every such token, and look like working code until one arrived.
@@ -385,5 +434,7 @@ func New(
 		verifier:          verifier,
 		proofVerifier:     config.ProofVerifier,
 		requireBoundToken: config.RequireBoundToken,
+		apiKeyIds:         slices.Clone(config.ApiKeyIds),
+		restrictApiKeys:   config.RestrictApiKeys,
 	}, nil
 }

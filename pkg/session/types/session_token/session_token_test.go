@@ -669,3 +669,135 @@ func TestRefresh_KeyThumbprint(t *testing.T) {
 		})
 	}
 }
+
+func TestEncode_ApiKeyId(t *testing.T) {
+	t.Parallel()
+
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("ed25519 generate key: %v", err)
+	}
+	signer := &altshiftCryptoEddsa.Method{PrivateKey: privateKey, PublicKey: publicKey}
+
+	testCases := []struct {
+		name     string
+		apiKeyId string
+	}{
+		{name: "a key's session", apiKeyId: "key-id"},
+		{name: "a session of no key"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			token, err := Parse(makeClaims("auth-id:session-id", "subject-id:test@example.com", "", nil))
+			if err != nil {
+				t.Fatalf("%s: parse: %v", testCase.name, err)
+			}
+			token.ApiKeyId = testCase.apiKeyId
+
+			tokenString, err := token.Encode(signer)
+			if err != nil {
+				t.Fatalf("%s: encode: %v", testCase.name, err)
+			}
+
+			payload := decodePayload(t, tokenString)
+			clientId, ok := payload["client_id"]
+			if testCase.apiKeyId == "" {
+				if ok {
+					t.Errorf("%s: client_id = %v, want none", testCase.name, clientId)
+				}
+				return
+			}
+			if clientId != testCase.apiKeyId {
+				t.Errorf("%s: client_id = %v, want %q", testCase.name, clientId, testCase.apiKeyId)
+			}
+
+			// What Encode writes, ParsePayload reads back.
+			parsed, err := ParsePayload(payload)
+			if err != nil || parsed == nil || parsed.ApiKeyId != testCase.apiKeyId {
+				t.Errorf("%s: parsed back %+v, %v", testCase.name, parsed, err)
+			}
+		})
+	}
+}
+
+func TestParsePayload_ApiKeyId(t *testing.T) {
+	t.Parallel()
+
+	payloadWith := func(clientId any) map[string]any {
+		payload := map[string]any{
+			"iss":   "issuer",
+			"sub":   "subject-id:test@example.com",
+			"jti":   "auth-id:session-id",
+			"amr":   []any{"swk"},
+			"roles": []any{"role-a"},
+		}
+		if clientId != nil {
+			payload["client_id"] = clientId
+		}
+		return payload
+	}
+
+	testCases := []struct {
+		name         string
+		payload      map[string]any
+		wantApiKeyId string
+		wantErr      error
+	}{
+		{name: "no client_id", payload: payloadWith(nil)},
+		{name: "a key id", payload: payloadWith("key-id"), wantApiKeyId: "key-id"},
+		// A claim that cannot be read is refused rather than read as a session naming no key.
+		{name: "client_id empty", payload: payloadWith(""), wantErr: altshiftErrors.ErrParseError},
+		{name: "client_id a number", payload: payloadWith(1.0), wantErr: altshiftErrors.ErrParseError},
+		{name: "client_id a list", payload: payloadWith([]any{"key-id"}), wantErr: altshiftErrors.ErrParseError},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			token, err := ParsePayload(testCase.payload)
+
+			if testCase.wantErr != nil {
+				if !errors.Is(err, testCase.wantErr) {
+					t.Errorf("%s: got %v, want %v", testCase.name, err, testCase.wantErr)
+				}
+				if token != nil {
+					t.Errorf("%s: a token came back with the refusal", testCase.name)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("%s: unexpected error: %v", testCase.name, err)
+			}
+			if token == nil {
+				t.Fatalf("%s: no token", testCase.name)
+			}
+			if token.ApiKeyId != testCase.wantApiKeyId {
+				t.Errorf("%s: api key id %q, want %q", testCase.name, token.ApiKeyId, testCase.wantApiKeyId)
+			}
+		})
+	}
+}
+
+func TestRefresh_ApiKeyId(t *testing.T) {
+	t.Parallel()
+
+	token, err := Parse(makeClaims("auth-id:session-id", "subject-id:test@example.com", "", nil))
+	if err != nil || token == nil {
+		t.Fatalf("parse: %v", err)
+		return
+	}
+	token.ApiKeyId = "key-id"
+
+	refreshed, err := token.Refresh(makeAuthentication(time.Now().Add(time.Hour)), time.Hour, "refresh")
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if refreshed.ApiKeyId != "key-id" {
+		t.Errorf("api key id %q, want %q", refreshed.ApiKeyId, "key-id")
+	}
+}
