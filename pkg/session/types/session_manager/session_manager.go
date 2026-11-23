@@ -752,6 +752,25 @@ func (m *Manager) MintToken(
 	return sessionToken, sessionTokenString, nil
 }
 
+// PastIdleBound is when the authentication's session began to sit idle, if that was longer ago than
+// the idle bound, and nil if it was not or there is no bound. A session that presents no token cannot
+// say when its last one expired, so that is read from the authentication's SessionExpiresAt, which
+// the DBSC endpoints record when the session is bound and at every refresh. An authentication
+// without one was bound before it was recorded, and is not measured; its refresh records one.
+func (m *Manager) PastIdleBound(authentication *authenticationPkg.Authentication) *time.Time {
+	idleDuration := m.IdleDuration
+	if idleDuration <= 0 || authentication == nil {
+		return nil
+	}
+
+	idleSince := authentication.SessionExpiresAt
+	if idleSince == nil || time.Since(*idleSince) <= idleDuration {
+		return nil
+	}
+
+	return idleSince
+}
+
 // MintSession issues a session for an authentication that presents no session token, and returns the
 // response carrying it as a cookie. A DBSC refresh arrives without the bound cookie -- that is what
 // triggers it -- so there is no previous token whose claims could be carried over, as RefreshSession
@@ -760,26 +779,21 @@ func (m *Manager) MintToken(
 // As elsewhere, the cookie expires with the token when the session is device bound, so that the
 // browser keeps refreshing it.
 //
-// The idle bound applies as it does in RefreshSession, refused with sessionErrors.ErrIdleSession. A
-// session that presents no token cannot say when its last one expired, so that is read from the
-// authentication's SessionExpiresAt, which the DBSC endpoints record when the session is bound and
-// at every refresh. An authentication without one was bound before it was recorded, and is not
-// measured; its refresh records one.
+// The idle bound applies as it does in RefreshSession, refused with sessionErrors.ErrIdleSession and
+// measured as PastIdleBound measures it.
 func (m *Manager) MintSession(
 	authentication *authenticationPkg.Authentication,
 	authenticationMethod string,
 	sessionDuration time.Duration,
 ) (*response.Response, *response_error.ResponseError) {
-	if idleDuration := m.IdleDuration; idleDuration > 0 && authentication != nil {
-		if idleSince := authentication.SessionExpiresAt; idleSince != nil && time.Since(*idleSince) > idleDuration {
-			return nil, &response_error.ResponseError{
-				ClientError: altshiftErrors.NewWithTrace(sessionErrors.ErrIdleSession, *idleSince),
-				Headers:     []*response.HeaderEntry{{Name: clearSiteDataHeaderName, Value: clearSiteDataCookies}},
-				ProblemDetail: problem_detail.New(
-					http.StatusUnauthorized,
-					problem_detail_config.WithDetail("The session has been idle for too long."),
-				),
-			}
+	if idleSince := m.PastIdleBound(authentication); idleSince != nil {
+		return nil, &response_error.ResponseError{
+			ClientError: altshiftErrors.NewWithTrace(sessionErrors.ErrIdleSession, *idleSince),
+			Headers:     []*response.HeaderEntry{{Name: clearSiteDataHeaderName, Value: clearSiteDataCookies}},
+			ProblemDetail: problem_detail.New(
+				http.StatusUnauthorized,
+				problem_detail_config.WithDetail("The session has been idle for too long."),
+			),
 		}
 	}
 

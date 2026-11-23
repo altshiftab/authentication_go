@@ -537,21 +537,46 @@ func TestEndpoint_IdleBound(t *testing.T) {
 		name               string
 		sessionExpiredAgo  time.Duration
 		recordErr          error
+		noProof            bool
+		challengePurged    bool
 		expectedStatusCode int
 		expectedBody       string
 		wantRecorded       bool
+		wantChallenges     int
 	}{
 		{
 			name:               "a session last refreshed a day ago is refreshed, and the new expiry recorded",
 			sessionExpiredAgo:  24 * time.Hour,
 			expectedStatusCode: http.StatusNoContent,
 			wantRecorded:       true,
+			wantChallenges:     1,
 		},
 		{
 			name:               "a session idle past the bound is ended",
 			sessionExpiredAgo:  8 * 24 * time.Hour,
 			expectedStatusCode: http.StatusOK,
 			expectedBody:       `{"continue":false}`,
+		},
+		{
+			name:               "a browser back at a session idle past the bound with no proof is told it ended, not challenged",
+			sessionExpiredAgo:  8 * 24 * time.Hour,
+			noProof:            true,
+			expectedStatusCode: http.StatusOK,
+			expectedBody:       `{"continue":false}`,
+		},
+		{
+			name:               "a browser back at a session idle past the bound with a purged challenge is told it ended, not challenged",
+			sessionExpiredAgo:  8 * 24 * time.Hour,
+			challengePurged:    true,
+			expectedStatusCode: http.StatusOK,
+			expectedBody:       `{"continue":false}`,
+		},
+		{
+			name:               "a browser with no proof for a session within the bound is challenged",
+			sessionExpiredAgo:  24 * time.Hour,
+			noProof:            true,
+			expectedStatusCode: http.StatusForbidden,
+			wantChallenges:     1,
 		},
 		{
 			name:               "a refresh that cannot be recorded is not handed out",
@@ -587,6 +612,9 @@ func TestEndpoint_IdleBound(t *testing.T) {
 				db,
 				dbsc_session_response_processor_config.WithPopDbscChallenge(
 					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
+						if testCase.challengePurged {
+							return nil, sql.ErrNoRows
+						}
 						return &dbsc_challenge.Challenge{
 							Authentication: &authenticationPkg.Authentication{Id: authenticationId},
 							Challenge:      []byte(challenge),
@@ -618,7 +646,11 @@ func TestEndpoint_IdleBound(t *testing.T) {
 				}, nil
 			}
 			testEndpoint.generateDbscChallenge = func() (string, error) { return testChallenge, nil }
-			testEndpoint.insertDbscChallenge = func(context.Context, string, string, time.Duration, *sql.DB) error { return nil }
+			var challenges atomic.Int32
+			testEndpoint.insertDbscChallenge = func(context.Context, string, string, time.Duration, *sql.DB) error {
+				challenges.Add(1)
+				return nil
+			}
 
 			mux := &muxPkg.Mux{}
 			mux.Add(testEndpoint.Endpoint.Endpoint)
@@ -630,7 +662,9 @@ func TestEndpoint_IdleBound(t *testing.T) {
 				t.Fatalf("%s: new request: %v", testCase.name, err)
 			}
 			request.Header.Set(session.DbscSessionIdHeaderName, testAuthenticationId)
-			request.Header.Set(session.DbscSessionResponseHeaderName, validToken)
+			if !testCase.noProof {
+				request.Header.Set(session.DbscSessionResponseHeaderName, validToken)
+			}
 
 			before := time.Now()
 			response, err := httpServer.Client().Do(request)
@@ -652,6 +686,10 @@ func TestEndpoint_IdleBound(t *testing.T) {
 				if string(body) != testCase.expectedBody {
 					t.Errorf("%s: body %q, expected %q", testCase.name, body, testCase.expectedBody)
 				}
+			}
+
+			if got := int(challenges.Load()); got != testCase.wantChallenges {
+				t.Errorf("%s: challenges stored %d, want %d", testCase.name, got, testCase.wantChallenges)
 			}
 
 			// A session cookie is handed out only by a refresh that was recorded.

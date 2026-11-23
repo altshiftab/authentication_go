@@ -232,6 +232,11 @@ func (e *Endpoint) Initialize(
 		if expiresAt := authentication.ExpiresAt; expiresAt != nil && time.Now().After(*expiresAt) {
 			return endedSessionResponse()
 		}
+		// An idle session is never refreshed again either, and a browser coming back to one holds a
+		// challenge long expired or none, so it is told before it is given one to sign.
+		if sessionManager.PastIdleBound(authentication) != nil {
+			return endedSessionResponse()
+		}
 
 		authenticationPublicKey := authentication.DbscPublicKey
 		if len(authenticationPublicKey) == 0 {

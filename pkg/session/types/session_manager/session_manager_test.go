@@ -966,6 +966,50 @@ func TestManager_MintSession(t *testing.T) {
 // refused as RefreshSession refuses a token, clearing the cookie. An authentication bound before the
 // expiry was recorded has none, and is not measured: refusing it would end every session bound
 // before the bound reached device bound sessions at all, however recently it was used.
+func TestManager_PastIdleBound(t *testing.T) {
+	t.Parallel()
+
+	const idleDuration = 7 * 24 * time.Hour
+
+	testCases := []struct {
+		name              string
+		idleDuration      time.Duration
+		nilAuthentication bool
+		sessionExpiredAgo *time.Duration
+		wantIdle          bool
+	}{
+		{name: "refreshed a day ago", idleDuration: idleDuration, sessionExpiredAgo: new(24 * time.Hour)},
+		{name: "refreshed eight days ago", idleDuration: idleDuration, sessionExpiredAgo: new(8 * 24 * time.Hour), wantIdle: true},
+		{name: "bound before an expiry was recorded", idleDuration: idleDuration},
+		{name: "no idle bound, refreshed long ago", sessionExpiredAgo: new(19 * 24 * time.Hour)},
+		{name: "no authentication", idleDuration: idleDuration, nilAuthentication: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			manager := &Manager{IdleDuration: testCase.idleDuration}
+
+			var authentication *authenticationPkg.Authentication
+			if !testCase.nilAuthentication {
+				authentication = &authenticationPkg.Authentication{Id: "test-authentication-id"}
+				if ago := testCase.sessionExpiredAgo; ago != nil {
+					authentication.SessionExpiresAt = new(time.Now().Add(-*ago))
+				}
+			}
+
+			idleSince := manager.PastIdleBound(authentication)
+			if (idleSince != nil) != testCase.wantIdle {
+				t.Fatalf("%s: idle since %v, want idle %v", testCase.name, idleSince, testCase.wantIdle)
+			}
+			if idleSince != nil && authentication != nil && !idleSince.Equal(*authentication.SessionExpiresAt) {
+				t.Errorf("%s: idle since %v, want %v", testCase.name, idleSince, authentication.SessionExpiresAt)
+			}
+		})
+	}
+}
+
 func TestManager_MintSession_IdleBound(t *testing.T) {
 	t.Parallel()
 
