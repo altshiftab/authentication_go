@@ -227,6 +227,20 @@ func TestHandler(t *testing.T) {
 			expectedStatusCode: http.StatusOK,
 		},
 		{
+			name:               "a target on the site over plain http is refused",
+			redirect:           "http://app.example.com/orders",
+			cookie:             func(t *testing.T) string { return expiredCookie(t) },
+			authentication:     liveAuthentication(),
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			name:               "a script naming the site as its host is refused",
+			redirect:           "javascript://app.example.com/%0aalert(1)",
+			cookie:             func(t *testing.T) string { return expiredCookie(t) },
+			authentication:     liveAuthentication(),
+			expectedStatusCode: http.StatusOK,
+		},
+		{
 			name:               "no session cookie serves the page",
 			authentication:     liveAuthentication(),
 			expectedStatusCode: http.StatusOK,
@@ -357,6 +371,46 @@ func TestHandler(t *testing.T) {
 			}
 			if !strings.Contains(setCookie, "Domain="+loginTesting.RegisteredDomain) {
 				t.Errorf("got cookie %q, expected it scoped to %s", setCookie, loginTesting.RegisteredDomain)
+			}
+		})
+	}
+}
+
+// TestRedirectUrl covers which targets the browser is sent back to: on the site the cookie is scoped
+// to, and over https, or over plain http only where the cookie is scoped to this machine.
+func TestRedirectUrl(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		value        string
+		cookieDomain string
+		want         string
+	}{
+		{name: "https on the site", value: "https://app.example.com/orders", cookieDomain: "example.com", want: "https://app.example.com/orders"},
+		{name: "plain http on the site", value: "http://app.example.com/orders", cookieDomain: "example.com"},
+		{name: "a script on the site", value: "javascript://app.example.com/%0aalert(1)", cookieDomain: "example.com"},
+		{name: "an app's scheme on the site", value: "com.example.app://app.example.com/", cookieDomain: "example.com"},
+		{name: "plain http on localhost, the cookie scoped to it", value: "http://localhost:3000/orders", cookieDomain: "localhost", want: "http://localhost:3000/orders"},
+		{name: "a script on localhost, the cookie scoped to it", value: "javascript://localhost/%0aalert(1)", cookieDomain: "localhost"},
+		{name: "nothing", cookieDomain: "example.com"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := redirectUrl(testCase.value, testCase.cookieDomain)
+			if err != nil {
+				t.Fatalf("%s: redirect url: %v", testCase.name, err)
+			}
+
+			var gotString string
+			if got != nil {
+				gotString = got.String()
+			}
+			if gotString != testCase.want {
+				t.Errorf("%s: target %q, want %q", testCase.name, gotString, testCase.want)
 			}
 		})
 	}

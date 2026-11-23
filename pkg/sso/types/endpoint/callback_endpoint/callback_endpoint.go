@@ -20,6 +20,7 @@ import (
 	"uuid"
 
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
+	"github.com/altshiftab/authentication_go/pkg/redirect_scheme"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
 	ssoErrors "github.com/altshiftab/authentication_go/pkg/sso/errors"
@@ -132,6 +133,10 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 
 	// tokenEndpoint is the provider's token URL, as the log's body masks name it; set by Initialize.
 	tokenEndpoint *schema.Url
+
+	// allowLoopbackHttp is whether a flow may send the browser on over plain http to this machine,
+	// which it may when the origin is on it; set by Initialize.
+	allowLoopbackHttp bool
 }
 
 // Initialize wires the endpoint's runtime dependencies. origin is the base URL
@@ -169,6 +174,14 @@ func (e *Endpoint[T]) Initialize(
 	e.tokenEndpoint = &schema.Url{Domain: tokenUrl.Hostname(), Path: tokenUrl.Path}
 
 	origin = strings.TrimRight(origin, "/")
+
+	// The login endpoint takes plain http to this machine where it is served from it, as the service
+	// then is; anywhere else it takes https alone, and so does this.
+	e.allowLoopbackHttp = false
+	if originUrl, err := url.Parse(origin); err == nil {
+		e.allowLoopbackHttp = redirect_scheme.IsLoopback(originUrl.Hostname())
+	}
+
 	problemRedirectUrls := make(map[oauth_error.Category]string, len(categoryProblemPaths))
 	for category, path := range categoryProblemPaths {
 		problemRedirectUrls[category] = origin + path
@@ -337,6 +350,21 @@ func (e *Endpoint[T]) Initialize(
 				ProblemDetail: problem_detail.New(
 					http.StatusBadRequest,
 					problem_detail_config.WithDetail("The OAuth flow state and url state do not match."),
+				),
+			}
+		}
+
+		// The flow's redirect is where the browser is sent once signed in. The login endpoint took
+		// only https, but a flow is the store's, and one begun before it did, or by another, is held
+		// to the same here rather than followed.
+		if flowRedirectUrl, err := url.Parse(oauthFlow.RedirectUrl); err != nil || !redirect_scheme.Allowed(flowRedirectUrl, e.allowLoopbackHttp) {
+			return nil, &response_error.ResponseError{
+				ClientError: altshiftErrors.NewWithTrace(
+					fmt.Errorf("%w: oauth flow redirect url scheme", altshiftErrors.ErrValidationError),
+				),
+				ProblemDetail: problem_detail.New(
+					http.StatusBadRequest,
+					problem_detail_config.WithDetail("The OAuth flow's redirect URL is not an https URL."),
 				),
 			}
 		}

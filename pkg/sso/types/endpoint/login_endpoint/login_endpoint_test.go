@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -407,3 +408,79 @@ func TestRealRandomHelpers(t *testing.T) {
 
 // TODO: Implement tests
 //	- New()
+
+// TestEndpoint_RedirectScheme covers the scheme of where a sign-in is bound. The browser is sent there
+// once signed in, and the host the redirect is held to can be read out of any URL written with an
+// authority, so a script, an app's scheme or plain http naming the site is refused all the same. Plain
+// http is taken only on this machine, where the service is itself served from localhost.
+func TestEndpoint_RedirectScheme(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "The redirect URL must be an https URL."
+
+	testCases := []struct {
+		name       string
+		domain     string
+		redirect   string
+		wantRefuse bool
+	}{
+		{name: "https on the site", domain: testing2.Domain, redirect: "https://app." + testing2.Domain + "/back"},
+		{name: "plain http on the site", domain: testing2.Domain, redirect: "http://app." + testing2.Domain + "/back", wantRefuse: true},
+		{name: "a script naming the site", domain: testing2.Domain, redirect: "javascript://app." + testing2.Domain + "/%0aalert(1)", wantRefuse: true},
+		{name: "an android intent naming the site", domain: testing2.Domain, redirect: "intent://app." + testing2.Domain + "/#Intent;scheme=https;end", wantRefuse: true},
+		{name: "an app's scheme naming the site", domain: testing2.Domain, redirect: "com.example.app://app." + testing2.Domain + "/back", wantRefuse: true},
+		{name: "plain http on localhost, served from localhost", domain: "localhost", redirect: "http://localhost:3000/back"},
+		{name: "https on localhost, served from localhost", domain: "localhost", redirect: "https://localhost/back"},
+		{name: "a script on localhost, served from localhost", domain: "localhost", redirect: "javascript://localhost/%0aalert(1)", wantRefuse: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testEndpoint, err := New(defaultPath, defaultCallbackPath)
+			if err != nil {
+				t.Fatalf("%s: new endpoint: %v", testCase.name, err)
+			}
+
+			if err := testEndpoint.Initialize(testCase.domain, oauthConfig, db); err != nil {
+				t.Fatalf("%s: initialize endpoint: %v", testCase.name, err)
+			}
+
+			var inserted atomic.Int32
+			testEndpoint.insertOauthFlow = func(ctx context.Context, state string, codeVerifier string, redirectUrl string, expirationDuration time.Duration, database *sql.DB) (*oauth_flow.Flow, error) {
+				inserted.Add(1)
+				return &oauth_flow.Flow{Id: testing2.OauthFlowId, ExpiresAt: new(time.Now().Add(expirationDuration))}, nil
+			}
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			requestUrl, err := url.Parse(httpServer.URL + defaultPath)
+			if err != nil {
+				t.Fatalf("%s: url parse: %v", testCase.name, err)
+			}
+			requestUrl.RawQuery = url.Values{"redirect": {testCase.redirect}}.Encode()
+
+			args := &muxTesting.Args{
+				ExpectedStatusCode:     http.StatusFound,
+				ExpectedHeadersPresent: []string{"Set-Cookie", "Location"},
+			}
+			if testCase.wantRefuse {
+				args = &muxTesting.Args{
+					ExpectedStatusCode:    http.StatusBadRequest,
+					ExpectedProblemDetail: &problem_detail.Detail{Detail: refusal},
+				}
+			}
+
+			muxTesting.TestArgs(t, args, requestUrl.String())
+
+			// A refused redirect begins no flow, so nothing is stored for it.
+			if count := inserted.Load(); testCase.wantRefuse && count != 0 {
+				t.Errorf("%s: %d flows stored for a refused redirect", testCase.name, count)
+			}
+		})
+	}
+}

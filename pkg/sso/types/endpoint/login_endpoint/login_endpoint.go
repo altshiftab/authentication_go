@@ -25,6 +25,7 @@ import (
 
 	"github.com/altshiftab/authentication_go/pkg/database"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
+	"github.com/altshiftab/authentication_go/pkg/redirect_scheme"
 	"github.com/altshiftab/authentication_go/pkg/sso/types/endpoint/login_endpoint/login_endpoint_config"
 	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
@@ -96,10 +97,12 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.C
 		return altshiftErrors.NewWithTrace(nil_error.New("sql db"))
 	}
 
+	allowLocalhost := altshiftNet.IsLocalhost(domain)
+
 	e.UrlParser = adapter.New(
 		url_allower.New(
 			query_extractor.New[*UrlInput](),
-			url_allower_config.WithAllowLocalhost(altshiftNet.IsLocalhost(domain)),
+			url_allower_config.WithAllowLocalhost(allowLocalhost),
 			url_allower_config.WithAllowedRegisteredDomains([]string{domain}),
 		),
 	)
@@ -110,6 +113,22 @@ func (e *Endpoint) Initialize(domain string, oauthConfig *altshiftOauth2Config.C
 		redirectUrl, responseError := muxUtils.GetServerNonZeroParsedRequestUrl[*url.URL](ctx)
 		if responseError != nil {
 			return nil, responseError
+		}
+
+		// The allower holds the host to the site, which says nothing of the scheme. The browser is
+		// sent here once signed in, so it is held to https, or to http on this machine where the
+		// service is run on it.
+		if !redirect_scheme.Allowed(redirectUrl, allowLocalhost) {
+			return nil, &response_error.ResponseError{
+				ClientError: altshiftErrors.NewWithTrace(
+					fmt.Errorf("%w: redirect url scheme", altshiftErrors.ErrValidationError),
+					redirectUrl.Scheme,
+				),
+				ProblemDetail: problem_detail.New(
+					http.StatusBadRequest,
+					problem_detail_config.WithDetail("The redirect URL must be an https URL."),
+				),
+			}
 		}
 
 		redirectUrlString := redirectUrl.String()

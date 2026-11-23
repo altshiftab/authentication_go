@@ -155,3 +155,57 @@ func TestProviderErrorRedirectCustomClassifier(t *testing.T) {
 		t.Errorf("Location = %q, want %q (custom classifier)", got, wantLocation)
 	}
 }
+
+// TestFlowRedirectScheme covers the scheme of where a flow sends the browser once it is signed in. The
+// login endpoint takes only https, but the flow is the store's, so one that names anything else --
+// begun before the endpoint checked, or by another -- is refused here rather than followed. Plain http
+// is followed only to this machine, when the origin is on it. The gate stands before the provider's
+// answer is read, so a declined sign-in shows it as well as a completed one would.
+func TestFlowRedirectScheme(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		origin      string
+		redirectUrl string
+		wantRefuse  bool
+	}{
+		{name: "https", origin: testOrigin, redirectUrl: testing2.RedirectUrl},
+		{name: "plain http", origin: testOrigin, redirectUrl: "http://example.com/redirect", wantRefuse: true},
+		{name: "a script", origin: testOrigin, redirectUrl: "javascript://example.com/%0aalert(1)", wantRefuse: true},
+		{name: "an android intent", origin: testOrigin, redirectUrl: "intent://example.com/#Intent;scheme=https;end", wantRefuse: true},
+		{name: "plain http to localhost, from an origin elsewhere", origin: testOrigin, redirectUrl: "http://localhost:3000/", wantRefuse: true},
+		{name: "plain http to localhost, from an origin on it", origin: "http://localhost:8080", redirectUrl: "http://localhost:3000/"},
+		{name: "a flow redirect that does not parse", origin: testOrigin, redirectUrl: "https://example.com/%zz", wantRefuse: true},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			server, endpoint := newRedirectTestServer(t, testCase.origin)
+			endpoint.popOauthFlow = func(ctx context.Context, id string, database *sql.DB) (*oauth_flow.Flow, error) {
+				return &oauth_flow.Flow{
+					Id:          testing2.OauthFlowId,
+					RedirectUrl: testCase.redirectUrl,
+					State:       testing2.State,
+					ExpiresAt:   new(time.Now().Add(time.Hour)),
+				}, nil
+			}
+
+			response := doCallback(t, server, endpoint, "state="+testing2.State+"&error=access_denied")
+			defer func() { _ = response.Body.Close() }()
+
+			wantStatusCode := http.StatusSeeOther
+			if testCase.wantRefuse {
+				wantStatusCode = http.StatusBadRequest
+			}
+			if response.StatusCode != wantStatusCode {
+				t.Errorf("%s: status %d, want %d", testCase.name, response.StatusCode, wantStatusCode)
+			}
+			if location := response.Header.Get("Location"); testCase.wantRefuse && location != "" {
+				t.Errorf("%s: the browser is sent to %q", testCase.name, location)
+			}
+		})
+	}
+}

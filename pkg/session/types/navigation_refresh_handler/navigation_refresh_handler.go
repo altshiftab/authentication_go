@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altshiftab/authentication_go/pkg/redirect_scheme"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/navigation_refresh_handler/navigation_refresh_handler_config"
@@ -38,6 +39,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
 	muxResponse "github.com/altshiftab/utils_go/pkg/http/mux/types/response"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
+	altshiftNet "github.com/altshiftab/utils_go/pkg/net"
 	altshiftStrings "github.com/altshiftab/utils_go/pkg/strings"
 )
 
@@ -50,8 +52,9 @@ const (
 // redirectUrl accepts a redirect target only if it is on the site the session cookie is scoped to.
 // The cookie is what is being handed back, so anywhere it would not be sent is somewhere this has
 // no business sending the browser -- and a parameter that is followed unchecked is an open
-// redirect. Requiring the scheme keeps a target like "javascript:" from being followed even if it
-// were ever to present a matching host.
+// redirect. The scheme is held to https, or to http on this machine where the cookie is scoped to
+// localhost: a host can be read out of a "javascript:" URL as well as any, and plain http hands the
+// renewed session's page to anyone on the path.
 func redirectUrl(value string, cookieDomain string) (*url.URL, error) {
 	if value == "" {
 		return nil, nil
@@ -62,7 +65,7 @@ func redirectUrl(value string, cookieDomain string) (*url.URL, error) {
 		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("url parse: %w", err), value)
 	}
 
-	if scheme := parsedUrl.Scheme; scheme != "https" && scheme != "http" {
+	if !redirect_scheme.Allowed(parsedUrl, altshiftNet.IsLocalhost(cookieDomain)) {
 		return nil, nil
 	}
 
