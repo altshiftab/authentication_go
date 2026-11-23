@@ -177,7 +177,8 @@ func TestSelectRefreshAuthentication_SessionExpiresAt(t *testing.T) {
 
 // Every flow begun removes the flows that expired more than a while ago, which nothing else would: a
 // flow is begun by anyone who asks, and is otherwise removed only by the callback that completes it.
-// One that expired a moment ago is kept, for a callback arriving late to restart its sign-in from.
+// One that expired within the last 30 days is kept, for a callback arriving late to restart its
+// sign-in from, and for the database dumps to hold.
 func TestInsertOauthFlow_PurgesExpiredFlows(t *testing.T) {
 	t.Parallel()
 
@@ -190,8 +191,9 @@ func TestInsertOauthFlow_PurgesExpiredFlows(t *testing.T) {
 	}{
 		{name: "a live flow is kept", expiresIn: 5 * time.Minute, wantKept: true},
 		{name: "a flow expired a moment ago is kept", expiresIn: -10 * time.Minute, wantKept: true},
-		{name: "a flow expired long ago is removed", expiresIn: -2 * time.Hour},
-		{name: "a flow expired days ago is removed", expiresIn: -72 * time.Hour},
+		{name: "a flow expired days ago is kept", expiresIn: -72 * time.Hour, wantKept: true},
+		{name: "a flow expired a month ago is removed", expiresIn: -31 * 24 * time.Hour},
+		{name: "a flow expired months ago is removed", expiresIn: -90 * 24 * time.Hour},
 	}
 
 	states := make([]string, len(testCases))

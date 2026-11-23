@@ -386,9 +386,11 @@ func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql
 
 // expiredOauthFlowRetention is how long a flow is kept after it expires. A callback that arrives after
 // its flow expired restarts the sign-in from the flow its state names (PopExpiredOauthFlowByState),
-// so expired flows are kept a while for a browser coming back late; past this, the callback is
-// refused and the sign-in is begun again by hand.
-const expiredOauthFlowRetention = time.Hour
+// so expired flows are kept for a browser coming back late; past this, the callback is refused and
+// the sign-in is begun again by hand. The flows a callback never completed are also the only record
+// of when a failed sign-in began, since successful requests are not logged, so they are kept long
+// enough for the nightly database dumps to hold them.
+const expiredOauthFlowRetention = 30 * 24 * time.Hour
 
 const (
 	// Every flow begun removes those expired longer ago than expiredOauthFlowRetention, so that the
