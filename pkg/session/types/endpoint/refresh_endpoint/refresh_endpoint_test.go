@@ -74,13 +74,16 @@ func TestEndpoint(t *testing.T) {
 
 	// A session token with most of its lifetime left is not refreshed and never reaches the
 	// authentication, so cases that exercise the lookup carry one that is due for refresh.
-	dueForRefreshCookie := loginTesting.MakeCookieExplicit(
-		loginTesting.AuthenticationId,
-		method,
-		[]string{"ext"},
-		time.Now().Add(time.Minute),
-		time.Now().Add(-59*time.Minute),
-	)
+	dueForRefresh := func(authenticationMethod string) string {
+		return loginTesting.MakeCookieExplicit(
+			loginTesting.AuthenticationId,
+			method,
+			[]string{authenticationMethod},
+			time.Now().Add(time.Minute),
+			time.Now().Add(-59*time.Minute),
+		)
+	}
+	dueForRefreshCookie := dueForRefresh(authentication_method.Sso)
 
 	testCases := []struct {
 		name                      string
@@ -135,19 +138,44 @@ func TestEndpoint(t *testing.T) {
 				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
 			},
 		},
+		// A session bound to a device key is not renewed by cookie, whichever way its token was
+		// issued: the cookie refresh used to refuse only the token from sign-in, so a bound
+		// session holding a token from a cookie refresh or a magic link went on being renewed
+		// without the device.
 		{
-			name: "ext session public key",
+			name: "ext session bound to a device key",
 			args: &muxTesting.Args{
-				Headers: [][2]string{
-					{
-						"Cookie",
-						loginTesting.MakeStandardCookie(loginTesting.AuthenticationId, method),
-					},
-				},
+				Headers:                   [][2]string{{"Cookie", dueForRefresh(authentication_method.Sso)}},
 				ExpectedStatusCode:        http.StatusNoContent,
 				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
 			},
 			hasPublicKey: true,
+		},
+		{
+			name: "rtoken session bound to a device key",
+			args: &muxTesting.Args{
+				Headers:                   [][2]string{{"Cookie", dueForRefresh(authentication_method.Refresh)}},
+				ExpectedStatusCode:        http.StatusNoContent,
+				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
+			},
+			hasPublicKey: true,
+		},
+		{
+			name: "otp session bound to a device key",
+			args: &muxTesting.Args{
+				Headers:                   [][2]string{{"Cookie", dueForRefresh(authentication_method.MagicLink)}},
+				ExpectedStatusCode:        http.StatusNoContent,
+				ExpectedHeadersNotPresent: []string{"Set-Cookie"},
+			},
+			hasPublicKey: true,
+		},
+		{
+			name: "rtoken session not bound",
+			args: &muxTesting.Args{
+				Headers:                [][2]string{{"Cookie", dueForRefresh(authentication_method.Refresh)}},
+				ExpectedStatusCode:     http.StatusNoContent,
+				ExpectedHeadersPresent: []string{"Set-Cookie"},
+			},
 		},
 		{
 			name: "hwk session happy path",

@@ -144,8 +144,12 @@ func (e *Endpoint) Initialize(
 			}
 		}
 
-		// Don't refresh if this is the first session and DBSC has been added.
-		if slices.Contains(claims.AuthenticationMethods, authentication_method.Sso) && len(authentication.DbscPublicKey) > 0 {
+		// An authentication bound to a device key is renewed only by the device, through the DBSC
+		// refresh, whatever the token presented here was issued by: a token from sign-in, from an
+		// earlier cookie refresh or from a magic link alike, since a bound session's cookie may hold
+		// any of them until its first DBSC refresh, and a copy of it renewed here would outlive the
+		// binding.
+		if len(authentication.DbscPublicKey) > 0 {
 			return nil, nil
 		}
 
