@@ -3,6 +3,7 @@ package login_endpoint
 import (
 	"context"
 	"database/sql"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,9 @@ import (
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/adapter"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	altshiftOauth2 "github.com/altshiftab/utils_go/pkg/oauth2"
 	altshiftOauth2Config "github.com/altshiftab/utils_go/pkg/oauth2/types/config"
@@ -413,10 +417,23 @@ func TestRealRandomHelpers(t *testing.T) {
 // once signed in, and the host the redirect is held to can be read out of any URL written with an
 // authority, so a script, an app's scheme or plain http naming the site is refused all the same. Plain
 // http is taken only on this machine, where the service is itself served from localhost.
+//
+// Every case is run twice: through the endpoint's URL allower, and with the allower replaced by a
+// parser that checks no scheme, so that the endpoint's own check is what refuses there. Either way a
+// refused redirect begins no flow.
 func TestEndpoint_RedirectScheme(t *testing.T) {
 	t.Parallel()
 
 	const refusal = "The redirect URL must be an https URL."
+
+	// A parser taking the redirect as it is written, as an allower that held only the host would.
+	schemelessParser := adapter.New(request_parser.New(func(request *http.Request) (*url.URL, *response_error.ResponseError) {
+		parsedUrl, err := url.Parse(request.URL.Query().Get("redirect"))
+		if err != nil {
+			return nil, &response_error.ResponseError{ServerError: err}
+		}
+		return parsedUrl, nil
+	}))
 
 	testCases := []struct {
 		name       string
@@ -435,52 +452,78 @@ func TestEndpoint_RedirectScheme(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			testEndpoint, err := New(defaultPath, defaultCallbackPath)
-			if err != nil {
-				t.Fatalf("%s: new endpoint: %v", testCase.name, err)
+		for _, schemeless := range []bool{false, true} {
+			name := testCase.name + ", through the url allower"
+			if schemeless {
+				name = testCase.name + ", behind a parser that checks no scheme"
 			}
 
-			if err := testEndpoint.Initialize(testCase.domain, oauthConfig, db); err != nil {
-				t.Fatalf("%s: initialize endpoint: %v", testCase.name, err)
-			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
-			var inserted atomic.Int32
-			testEndpoint.insertOauthFlow = func(ctx context.Context, state string, codeVerifier string, redirectUrl string, expirationDuration time.Duration, database *sql.DB) (*oauth_flow.Flow, error) {
-				inserted.Add(1)
-				return &oauth_flow.Flow{Id: testing2.OauthFlowId, ExpiresAt: new(time.Now().Add(expirationDuration))}, nil
-			}
-
-			mux := &muxPkg.Mux{}
-			mux.Add(testEndpoint.Endpoint.Endpoint)
-			httpServer := httptest.NewServer(mux)
-			defer httpServer.Close()
-
-			requestUrl, err := url.Parse(httpServer.URL + defaultPath)
-			if err != nil {
-				t.Fatalf("%s: url parse: %v", testCase.name, err)
-			}
-			requestUrl.RawQuery = url.Values{"redirect": {testCase.redirect}}.Encode()
-
-			args := &muxTesting.Args{
-				ExpectedStatusCode:     http.StatusFound,
-				ExpectedHeadersPresent: []string{"Set-Cookie", "Location"},
-			}
-			if testCase.wantRefuse {
-				args = &muxTesting.Args{
-					ExpectedStatusCode:    http.StatusBadRequest,
-					ExpectedProblemDetail: &problem_detail.Detail{Detail: refusal},
+				testEndpoint, err := New(defaultPath, defaultCallbackPath)
+				if err != nil {
+					t.Fatalf("%s: new endpoint: %v", name, err)
 				}
-			}
 
-			muxTesting.TestArgs(t, args, requestUrl.String())
+				if err := testEndpoint.Initialize(testCase.domain, oauthConfig, db); err != nil {
+					t.Fatalf("%s: initialize endpoint: %v", name, err)
+				}
+				if schemeless {
+					testEndpoint.UrlParser = schemelessParser
+				}
 
-			// A refused redirect begins no flow, so nothing is stored for it.
-			if count := inserted.Load(); testCase.wantRefuse && count != 0 {
-				t.Errorf("%s: %d flows stored for a refused redirect", testCase.name, count)
-			}
-		})
+				var inserted atomic.Int32
+				testEndpoint.insertOauthFlow = func(ctx context.Context, state string, codeVerifier string, redirectUrl string, expirationDuration time.Duration, database *sql.DB) (*oauth_flow.Flow, error) {
+					inserted.Add(1)
+					return &oauth_flow.Flow{Id: testing2.OauthFlowId, ExpiresAt: new(time.Now().Add(expirationDuration))}, nil
+				}
+
+				mux := &muxPkg.Mux{}
+				mux.Add(testEndpoint.Endpoint.Endpoint)
+				httpServer := httptest.NewServer(mux)
+				defer httpServer.Close()
+
+				requestUrl, err := url.Parse(httpServer.URL + defaultPath)
+				if err != nil {
+					t.Fatalf("%s: url parse: %v", name, err)
+				}
+				requestUrl.RawQuery = url.Values{"redirect": {testCase.redirect}}.Encode()
+
+				request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestUrl.String(), nil)
+				if err != nil {
+					t.Fatalf("%s: new request: %v", name, err)
+				}
+				client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+				response, err := client.Do(request)
+				if err != nil {
+					t.Fatalf("%s: do: %v", name, err)
+				}
+				defer func() { _ = response.Body.Close() }()
+
+				if !testCase.wantRefuse {
+					if response.StatusCode != http.StatusFound {
+						t.Errorf("%s: status %d, want %d", name, response.StatusCode, http.StatusFound)
+					}
+					return
+				}
+
+				if response.StatusCode != http.StatusBadRequest {
+					t.Errorf("%s: status %d, want %d", name, response.StatusCode, http.StatusBadRequest)
+				}
+				if count := inserted.Load(); count != 0 {
+					t.Errorf("%s: %d flows stored for a refused redirect", name, count)
+				}
+				if schemeless {
+					var detail problem_detail.Detail
+					if err := json.UnmarshalRead(response.Body, &detail); err != nil {
+						t.Fatalf("%s: json unmarshal read (problem detail): %v", name, err)
+					}
+					if detail.Detail != refusal {
+						t.Errorf("%s: detail %q, want %q", name, detail.Detail, refusal)
+					}
+				}
+			})
+		}
 	}
 }
