@@ -20,4 +20,6 @@ var (
 	// it cached at the previous refresh, so a gap longer than the challenge's lifetime -- an idle
 	// session, most often -- produces this.
 	ErrExpiredDbscChallenge = errors.New("the dbsc challenge the proof names has expired")
+	// A session has sat unused for longer than the manager's idle bound, and is not renewed.
+	ErrIdleSession = errors.New("idle session")
 )

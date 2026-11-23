@@ -1,9 +1,15 @@
 package dbsc_refresh_endpoint_config
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
 )
+
+// errTestUpdate is what the stand-in an option is given fails with, so that it can be told apart.
+var errTestUpdate = errors.New("test update")
 
 func TestNew(t *testing.T) {
 	t.Parallel()
@@ -21,6 +27,9 @@ func TestNew(t *testing.T) {
 	}
 	if config.ChallengeDuration != DefaultChallengeDuration {
 		t.Errorf("challenge duration: got %v", config.ChallengeDuration)
+	}
+	if config.UpdateAuthenticationWithSessionExpiresAt == nil {
+		t.Error("update authentication with session expires at: nil")
 	}
 }
 
@@ -47,6 +56,17 @@ func TestOptions(t *testing.T) {
 			check: func(t *testing.T, config *Config) {
 				if config.SessionDuration != time.Hour {
 					t.Errorf("session duration: got %v", config.SessionDuration)
+				}
+			},
+		},
+		{
+			name: "with update authentication with session expires at",
+			option: WithUpdateAuthenticationWithSessionExpiresAt(
+				func(context.Context, string, time.Time, *sql.DB) error { return errTestUpdate },
+			),
+			check: func(t *testing.T, config *Config) {
+				if err := config.UpdateAuthenticationWithSessionExpiresAt(t.Context(), "id", time.Now(), nil); !errors.Is(err, errTestUpdate) {
+					t.Errorf("update authentication with session expires at: got %v", err)
 				}
 			},
 		},

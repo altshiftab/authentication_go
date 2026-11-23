@@ -759,11 +759,45 @@ func (m *Manager) MintToken(
 //
 // As elsewhere, the cookie expires with the token when the session is device bound, so that the
 // browser keeps refreshing it.
+//
+// The idle bound applies as it does in RefreshSession, refused with sessionErrors.ErrIdleSession. A
+// session that presents no token cannot say when its last one expired, so that is read from the
+// authentication: its SessionExpiresAt, which the caller records at each refresh, or, before the
+// first, the expiry its sign-in gave its first token.
 func (m *Manager) MintSession(
 	authentication *authenticationPkg.Authentication,
 	authenticationMethod string,
 	sessionDuration time.Duration,
 ) (*response.Response, *response_error.ResponseError) {
+	if idleDuration := m.IdleDuration; idleDuration > 0 && authentication != nil {
+		idleSince := authentication.SessionExpiresAt
+		if idleSince == nil {
+			createdAt := authentication.CreatedAt
+			if createdAt == nil {
+				return nil, &response_error.ResponseError{
+					ServerError: altshiftErrors.NewWithTrace(nil_error.New("authentication created at")),
+				}
+			}
+			idleSince = altshiftTime.Min(new(createdAt.Add(m.InitialSessionDuration)), authentication.ExpiresAt)
+			if idleSince == nil {
+				return nil, &response_error.ResponseError{
+					ServerError: altshiftErrors.NewWithTrace(nil_error.New("idle since")),
+				}
+			}
+		}
+
+		if time.Since(*idleSince) > idleDuration {
+			return nil, &response_error.ResponseError{
+				ClientError: altshiftErrors.NewWithTrace(sessionErrors.ErrIdleSession, *idleSince),
+				Headers:     []*response.HeaderEntry{{Name: clearSiteDataHeaderName, Value: clearSiteDataCookies}},
+				ProblemDetail: problem_detail.New(
+					http.StatusUnauthorized,
+					problem_detail_config.WithDetail("The session has been idle for too long."),
+				),
+			}
+		}
+	}
+
 	sessionToken, sessionTokenString, responseError := m.MintToken(
 		authentication,
 		authenticationMethod,

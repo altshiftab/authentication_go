@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +24,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_refresh_endpoint/dbsc_refresh_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_register_endpoint/dbsc_register_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager/session_manager_config"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
 	muxTesting "github.com/altshiftab/utils_go/pkg/http/mux/testing"
@@ -449,6 +452,7 @@ func TestNew(t *testing.T) {
 			"insertDbscChallenge",
 			"generateDbscChallenge",
 			"selectRefreshAuthentication",
+			"updateAuthenticationWithSessionExpiresAt",
 		),
 		altshiftTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
 	}
@@ -501,6 +505,173 @@ func TestNew(t *testing.T) {
 			got := New(tt.args.options...)
 			if diff := altshiftTestingCmp.Diff(tt.want, got, opts...); diff != "" {
 				t.Errorf("endpoint mismatch (-expected +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestEndpoint_IdleBound covers the idle bound as a device bound session meets it. The refresh
+// presents no token, so the session is measured from the expiry recorded at its last refresh: past
+// the bound it is ended, as a session that cannot be refreshed again is, and otherwise the expiry of
+// the token it is given is recorded for the next. A refresh that cannot be recorded is not handed out.
+func TestEndpoint_IdleBound(t *testing.T) {
+	t.Parallel()
+
+	const testChallenge = "test-challenge"
+	const idleDuration = 7 * 24 * time.Hour
+
+	validToken, validTokenPublicKey := loginTesting.MakeDbscProof(testChallenge)
+
+	idleBoundManager, err := session_manager.New(
+		method,
+		db,
+		loginTesting.Issuer,
+		loginTesting.RegisteredDomain,
+		session_manager_config.WithIdleDuration(idleDuration),
+	)
+	if err != nil {
+		t.Fatalf("session manager new: %v", err)
+	}
+
+	testCases := []struct {
+		name               string
+		sessionExpiredAgo  time.Duration
+		recordErr          error
+		expectedStatusCode int
+		expectedBody       string
+		wantRecorded       bool
+	}{
+		{
+			name:               "a session last refreshed a day ago is refreshed, and the new expiry recorded",
+			sessionExpiredAgo:  24 * time.Hour,
+			expectedStatusCode: http.StatusNoContent,
+			wantRecorded:       true,
+		},
+		{
+			name:               "a session idle past the bound is ended",
+			sessionExpiredAgo:  8 * 24 * time.Hour,
+			expectedStatusCode: http.StatusOK,
+			expectedBody:       `{"continue":false}`,
+		},
+		{
+			name:               "a refresh that cannot be recorded is not handed out",
+			sessionExpiredAgo:  24 * time.Hour,
+			recordErr:          sql.ErrConnDone,
+			expectedStatusCode: http.StatusInternalServerError,
+			wantRecorded:       true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var recorded []time.Time
+			var recordedMutex sync.Mutex
+
+			testEndpoint := New(
+				dbsc_refresh_endpoint_config.WithUpdateAuthenticationWithSessionExpiresAt(
+					func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error {
+						if id != testAuthenticationId {
+							return fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, id, testAuthenticationId)
+						}
+						recordedMutex.Lock()
+						defer recordedMutex.Unlock()
+						recorded = append(recorded, sessionExpiresAt)
+						return testCase.recordErr
+					},
+				),
+			)
+			processor, err := dbsc_session_response_processor.New(
+				"https://example.com"+dbsc_register_endpoint_config.DefaultPath,
+				db,
+				dbsc_session_response_processor_config.WithPopDbscChallenge(
+					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
+						return &dbsc_challenge.Challenge{
+							Authentication: &authenticationPkg.Authentication{Id: authenticationId},
+							Challenge:      []byte(challenge),
+							ExpiresAt:      new(time.Now().Add(time.Hour)),
+						}, nil
+					},
+				),
+			)
+			if err != nil {
+				t.Fatalf("%s: dbsc session response processor new: %v", testCase.name, err)
+			}
+			if err := testEndpoint.Initialize(processor, idleBoundManager); err != nil {
+				t.Fatalf("%s: test endpoint initialize: %v", testCase.name, err)
+			}
+
+			now := time.Now()
+			testEndpoint.selectRefreshAuthentication = func(ctx context.Context, id string, database *sql.DB) (*authenticationPkg.Authentication, error) {
+				return &authenticationPkg.Authentication{
+					Id: id,
+					Account: &accountPkg.Account{
+						Id:           "test-account-id",
+						EmailAddress: "test@example.com",
+						Roles:        []string{"test-role"},
+					},
+					DbscPublicKey:    validTokenPublicKey,
+					CreatedAt:        new(now.Add(-20 * 24 * time.Hour)),
+					ExpiresAt:        new(now.Add(10 * 24 * time.Hour)),
+					SessionExpiresAt: new(now.Add(-testCase.sessionExpiredAgo)),
+				}, nil
+			}
+			testEndpoint.generateDbscChallenge = func() (string, error) { return testChallenge, nil }
+			testEndpoint.insertDbscChallenge = func(context.Context, string, string, time.Duration, *sql.DB) error { return nil }
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			request, err := http.NewRequestWithContext(t.Context(), testEndpoint.Method, httpServer.URL+testEndpoint.Path, nil)
+			if err != nil {
+				t.Fatalf("%s: new request: %v", testCase.name, err)
+			}
+			request.Header.Set(session.DbscSessionIdHeaderName, testAuthenticationId)
+			request.Header.Set(session.DbscSessionResponseHeaderName, validToken)
+
+			before := time.Now()
+			response, err := httpServer.Client().Do(request)
+			if err != nil {
+				t.Fatalf("%s: do: %v", testCase.name, err)
+			}
+			defer func() { _ = response.Body.Close() }()
+			after := time.Now()
+
+			if response.StatusCode != testCase.expectedStatusCode {
+				t.Fatalf("%s: status code %d, expected %d", testCase.name, response.StatusCode, testCase.expectedStatusCode)
+			}
+
+			if testCase.expectedBody != "" {
+				body, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatalf("%s: read body: %v", testCase.name, err)
+				}
+				if string(body) != testCase.expectedBody {
+					t.Errorf("%s: body %q, expected %q", testCase.name, body, testCase.expectedBody)
+				}
+			}
+
+			// A session cookie is handed out only by a refresh that was recorded.
+			if setCookie := response.Header.Get("Set-Cookie"); (setCookie != "") != (testCase.wantRecorded && testCase.recordErr == nil) {
+				t.Errorf("%s: Set-Cookie %q", testCase.name, setCookie)
+			}
+
+			recordedMutex.Lock()
+			defer recordedMutex.Unlock()
+			if !testCase.wantRecorded {
+				if len(recorded) != 0 {
+					t.Errorf("%s: recorded %v, want nothing", testCase.name, recorded)
+				}
+				return
+			}
+			if len(recorded) != 1 {
+				t.Fatalf("%s: recorded %v, want one expiry", testCase.name, recorded)
+			}
+			if earliest, latest := before.Add(testEndpoint.SessionDuration), after.Add(testEndpoint.SessionDuration); recorded[0].Before(earliest) || recorded[0].After(latest) {
+				t.Errorf("%s: recorded %s, want between %s and %s", testCase.name, recorded[0], earliest, latest)
 			}
 		})
 	}

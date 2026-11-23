@@ -92,7 +92,8 @@ func WithAuthenticationDuration(authenticationDuration time.Duration) Option {
 // WithIdleDuration bounds how long a session token may have been expired and still be renewed
 // from its cookie. The token is renewed for as long as the session is in use, so how long ago it
 // expired is how long the session has sat idle; past this, signing in again is the only way back.
-// Without it, a cookie copied at any point stays renewable until the authentication expires. Zero
+// Without it, a cookie copied at any point stays renewable until the authentication expires. A device
+// bound session is held to the same bound, measured from the expiry its last refresh recorded. Zero
 // turns the bound off.
 func WithIdleDuration(idleDuration time.Duration) Option {
 	return func(config *Config) {

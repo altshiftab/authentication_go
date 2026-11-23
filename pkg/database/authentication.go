@@ -29,11 +29,12 @@ func isIdTokenUniqueViolation(err error) bool {
 
 const (
 	authenticationInsertQuery        = `INSERT INTO authentication (account, created_at, expires_at, id_token_hash, ip_address, ip_address_country, ip_address_city, user_agent) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`
-	authenticationSelectRefreshQuery = `SELECT au.ended, au.expires_at, au.created_at, au.dbsc_public_key, a.id, a.email_address, a.locked, c.id, c.name, COALESCE(a.roles, '{}'::text[]) AS roles FROM authentication au JOIN account a ON a.id = au.account LEFT JOIN customer c ON c.id = a.customer WHERE au.id = $1;`
+	authenticationSelectRefreshQuery = `SELECT au.ended, au.expires_at, au.created_at, au.dbsc_public_key, au.session_expires_at, a.id, a.email_address, a.locked, c.id, c.name, COALESCE(a.roles, '{}'::text[]) AS roles FROM authentication au JOIN account a ON a.id = au.account LEFT JOIN customer c ON c.id = a.customer WHERE au.id = $1;`
 	// The key is written only where none is: a session bound to one device is never moved to another.
 	authenticationUpdateWithDbscPublicKeyQuery       = `UPDATE authentication SET dbsc_public_key = $1 WHERE id = $2 AND dbsc_public_key IS NULL;`
 	authenticationSelectDbscPublicKeyRegisteredQuery = `SELECT dbsc_public_key IS NOT NULL FROM authentication WHERE id = $1;`
 	authenticationUpdateWithEndedQuery               = `UPDATE authentication SET ended = true, ended_at = now() WHERE id = $1;`
+	authenticationUpdateWithSessionExpiresAtQuery    = `UPDATE authentication SET session_expires_at = $1 WHERE id = $2;`
 	authenticationSelectIdTokenHashUsedQuery         = `SELECT EXISTS (SELECT 1 FROM authentication WHERE id_token_hash = $1);` //nolint:gosec // A query naming a column, not a credential.
 )
 
@@ -182,6 +183,7 @@ func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.D
 	var expiresAt time.Time
 	var createdAt time.Time
 	var dbscPublicKey []byte
+	var sessionExpiresAt sql.NullTime
 	var accountId string
 	var emailAddress string
 	var locked bool
@@ -189,7 +191,7 @@ func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.D
 	var customerName sql.NullString
 	var roles []string
 	if err := row.Scan(
-		&ended, &expiresAt, &createdAt, &dbscPublicKey,
+		&ended, &expiresAt, &createdAt, &dbscPublicKey, &sessionExpiresAt,
 		&accountId, &emailAddress, &locked, &customerId, &customerName,
 		postgres.TextArrayScanner{Target: &roles},
 	); err != nil {
@@ -201,13 +203,18 @@ func SelectRefreshAuthentication(ctx context.Context, id string, database *sql.D
 		account.Customer = &customer.Customer{Id: customerId.String, Name: customerName.String}
 	}
 
-	return &authenticationPkg.Authentication{
+	authentication := &authenticationPkg.Authentication{
 		Id: id, Ended: ended,
 		CreatedAt:     &createdAt,
 		ExpiresAt:     &expiresAt,
 		DbscPublicKey: dbscPublicKey,
 		Account:       account,
-	}, nil
+	}
+	if sessionExpiresAt.Valid {
+		authentication.SessionExpiresAt = &sessionExpiresAt.Time
+	}
+
+	return authentication, nil
 }
 
 func SelectEmailAddressAccount(ctx context.Context, emailAddress string, database *sql.DB) (*accountPkg.Account, error) {
@@ -309,6 +316,42 @@ func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key [
 	}
 
 	return altshiftErrors.NewWithTrace(sql.ErrNoRows)
+}
+
+// UpdateAuthenticationWithSessionExpiresAt records when the session token a device bound session was
+// just refreshed with expires, which its next refresh measures its idleness against.
+func UpdateAuthenticationWithSessionExpiresAt(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error {
+	if id == "" {
+		return altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
+	}
+
+	if sessionExpiresAt.IsZero() {
+		return altshiftErrors.NewWithTrace(empty_error.New("session expires at"))
+	}
+
+	if database == nil {
+		return altshiftErrors.NewWithTrace(nil_error.New("sql database"))
+	}
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context err: %w", err)
+	}
+
+	result, err := database.ExecContext(ctx, authenticationUpdateWithSessionExpiresAtQuery, sessionExpiresAt, id)
+	if err != nil {
+		return altshiftErrors.NewWithTrace(fmt.Errorf("sql database exec context: %w", err), sessionExpiresAt)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return altshiftErrors.NewWithTrace(fmt.Errorf("sql database rows affected: %w", err), result)
+	}
+
+	if rowsAffected == 0 {
+		return altshiftErrors.NewWithTrace(sql.ErrNoRows)
+	}
+
+	return nil
 }
 
 func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql.DB) error {

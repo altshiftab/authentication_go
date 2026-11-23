@@ -42,6 +42,8 @@ var (
 	DefaultInsertDbscChallenge         = database.InsertDbscChallenge
 	DefaultSelectRefreshAuthentication = database.SelectRefreshAuthentication
 	DefaultGenerateDbscChallenge       = session.GenerateDbscChallenge
+
+	DefaultUpdateAuthenticationWithSessionExpiresAt = database.UpdateAuthenticationWithSessionExpiresAt
 )
 
 type Config struct {
@@ -51,6 +53,9 @@ type Config struct {
 	InsertDbscChallenge         func(ctx context.Context, challenge string, authenticationId string, challengeDuration time.Duration, db *sql.DB) error
 	SelectRefreshAuthentication func(ctx context.Context, id string, database *sql.DB) (*authenticationPkg.Authentication, error)
 	GenerateDbscChallenge       func() (string, error)
+	// UpdateAuthenticationWithSessionExpiresAt records when the token a refresh issued expires, which
+	// the next refresh's idle bound is measured from.
+	UpdateAuthenticationWithSessionExpiresAt func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error
 }
 
 type Option func(*Config)
@@ -63,6 +68,8 @@ func New(options ...Option) *Config {
 		InsertDbscChallenge:         DefaultInsertDbscChallenge,
 		SelectRefreshAuthentication: DefaultSelectRefreshAuthentication,
 		GenerateDbscChallenge:       DefaultGenerateDbscChallenge,
+
+		UpdateAuthenticationWithSessionExpiresAt: DefaultUpdateAuthenticationWithSessionExpiresAt,
 	}
 	for _, option := range options {
 		option(config)
@@ -108,5 +115,13 @@ func WithSelectRefreshAuthentication(
 func WithGenerateDbscChallenge(generateDbscChallenge func() (string, error)) Option {
 	return func(config *Config) {
 		config.GenerateDbscChallenge = generateDbscChallenge
+	}
+}
+
+func WithUpdateAuthenticationWithSessionExpiresAt(
+	updateAuthenticationWithSessionExpiresAt func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error,
+) Option {
+	return func(config *Config) {
+		config.UpdateAuthenticationWithSessionExpiresAt = updateAuthenticationWithSessionExpiresAt
 	}
 }

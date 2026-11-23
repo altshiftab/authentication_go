@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	apiKeyTesting "github.com/altshiftab/authentication_go/pkg/api_key/testing"
 	"github.com/altshiftab/authentication_go/pkg/database"
@@ -120,4 +121,56 @@ func TestUpdateAuthenticationWithDbscPublicKey_RegistersOnce(t *testing.T) {
 			}
 		})
 	}
+}
+
+// What a refresh records is what the next one reads: the expiry a device bound session's idle bound
+// is measured from, absent until the first refresh.
+func TestSelectRefreshAuthentication_SessionExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+
+	testCases := []struct {
+		name     string
+		recorded *time.Time
+	}{
+		{name: "never refreshed"},
+		{name: "refreshed", recorded: new(time.Now().Add(15 * time.Minute).Truncate(time.Microsecond))},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			authenticationId := newAuthentication(t, db)
+
+			if testCase.recorded != nil {
+				if err := database.UpdateAuthenticationWithSessionExpiresAt(t.Context(), authenticationId, *testCase.recorded, db); err != nil {
+					t.Fatalf("%s: update authentication with session expires at: %v", testCase.name, err)
+				}
+			}
+
+			authentication, err := database.SelectRefreshAuthentication(t.Context(), authenticationId, db)
+			if err != nil {
+				t.Fatalf("%s: select refresh authentication: %v", testCase.name, err)
+			}
+
+			got := authentication.SessionExpiresAt
+			switch {
+			case testCase.recorded == nil && got != nil:
+				t.Errorf("%s: session expires at %s, want none", testCase.name, got)
+			case testCase.recorded != nil && (got == nil || !got.Equal(*testCase.recorded)):
+				t.Errorf("%s: session expires at %v, want %s", testCase.name, got, testCase.recorded)
+			}
+		})
+	}
+
+	t.Run("an authentication that is not there", func(t *testing.T) {
+		t.Parallel()
+
+		err := database.UpdateAuthenticationWithSessionExpiresAt(t.Context(), apiKeyTesting.UnrecordedAuthenticationId, time.Now(), db)
+		if !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("error %v, want %v", err, sql.ErrNoRows)
+		}
+	})
 }

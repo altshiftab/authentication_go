@@ -33,6 +33,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail"
 	"github.com/altshiftab/utils_go/pkg/http/types/problem_detail/problem_detail_config"
 	"github.com/altshiftab/utils_go/pkg/http/utils"
+	altshiftTime "github.com/altshiftab/utils_go/pkg/time"
 )
 
 // Use centralized DBSC header constants from the session package.
@@ -50,6 +51,8 @@ type Endpoint struct {
 	insertDbscChallenge         func(ctx context.Context, challenge string, authenticationId string, challengeDuration time.Duration, db *sql.DB) error
 	selectRefreshAuthentication func(ctx context.Context, id string, database *sql.DB) (*authenticationPkg.Authentication, error)
 	generateDbscChallenge       func() (string, error)
+
+	updateAuthenticationWithSessionExpiresAt func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error
 }
 
 // endedSessionResponse tells the browser to stop applying the session and discard its key. A
@@ -269,11 +272,39 @@ func (e *Endpoint) Initialize(
 
 		response, responseError := sessionManager.MintSession(authentication, authentication_method.Dbsc, e.SessionDuration)
 		if responseError != nil {
+			// Like an ended session, an idle one is never refreshed again, so the browser is told to
+			// stop applying it rather than given an error it would keep retrying.
+			if errors.Is(responseError.ClientError, sessionErrors.ErrIdleSession) {
+				return endedSessionResponse()
+			}
 			return nil, responseError
 		}
 		if response == nil {
 			return nil, &response_error.ResponseError{
 				ServerError: altshiftErrors.NewWithTrace(nil_error.New("response")),
+			}
+		}
+
+		// The token just minted is what the session sits idle from once it expires, and the next
+		// refresh presents nothing that says when that was. Its expiry is the one MintSession gave
+		// it, taken a moment later. Without the record the bound would be measured from the sign-in,
+		// so a refresh that cannot be recorded is not handed out.
+		sessionExpiresAt := altshiftTime.Min(new(time.Now().Add(e.SessionDuration)), authentication.ExpiresAt)
+		if sessionExpiresAt == nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.NewWithTrace(nil_error.New("session expires at")),
+			}
+		}
+
+		updateDbCtx, updateDbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
+		defer updateDbCtxCancel()
+
+		if err := e.updateAuthenticationWithSessionExpiresAt(updateDbCtx, authenticationId, *sessionExpiresAt, db); err != nil {
+			return nil, &response_error.ResponseError{
+				ServerError: altshiftErrors.New(
+					fmt.Errorf("update authentication with session expires at: %w", err),
+					authenticationId, *sessionExpiresAt,
+				),
 			}
 		}
 
@@ -317,5 +348,7 @@ func New(options ...dbsc_refresh_endpoint_config.Option) *Endpoint {
 		insertDbscChallenge:         config.InsertDbscChallenge,
 		selectRefreshAuthentication: config.SelectRefreshAuthentication,
 		generateDbscChallenge:       config.GenerateDbscChallenge,
+
+		updateAuthenticationWithSessionExpiresAt: config.UpdateAuthenticationWithSessionExpiresAt,
 	}
 }

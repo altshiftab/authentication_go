@@ -18,6 +18,7 @@ import (
 	accountPkg "github.com/altshiftab/authentication_go/pkg/database/types/account"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/customer"
+	sessionErrors "github.com/altshiftab/authentication_go/pkg/session/errors"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
@@ -954,6 +955,95 @@ func TestManager_MintSession(t *testing.T) {
 
 			if expected := time.Now().Add(15 * time.Minute); tokenExpiresAt.Sub(expected).Abs() > time.Minute {
 				t.Errorf("token expiry %s, expected roughly %s", tokenExpiresAt, expected)
+			}
+		})
+	}
+}
+
+// TestManager_MintSession_IdleBound covers the idle bound for a session that presents no token: a
+// device bound one, refreshed because its cookie expired. How long it has sat idle is read from the
+// authentication -- the expiry recorded at its last refresh, or before the first, the one its sign-in
+// gave it -- and past the bound it is refused as RefreshSession refuses a token, clearing the cookie.
+func TestManager_MintSession_IdleBound(t *testing.T) {
+	t.Parallel()
+
+	signer := newTestSigner(t)
+
+	const (
+		idleDuration           = 7 * 24 * time.Hour
+		initialSessionDuration = 15 * time.Minute
+	)
+
+	testCases := []struct {
+		name              string
+		idleDuration      time.Duration
+		createdAgo        time.Duration
+		sessionExpiredAgo *time.Duration
+		wantIdle          bool
+	}{
+		{name: "refreshed a day ago", idleDuration: idleDuration, createdAgo: 20 * 24 * time.Hour, sessionExpiredAgo: new(24 * time.Hour)},
+		{
+			name:              "refreshed eight days ago",
+			idleDuration:      idleDuration,
+			createdAgo:        20 * 24 * time.Hour,
+			sessionExpiredAgo: new(8 * 24 * time.Hour),
+			wantIdle:          true,
+		},
+		// Before its first refresh a session has only what its sign-in gave it, which is measured
+		// from when it was signed in to.
+		{name: "never refreshed, signed in to a day ago", idleDuration: idleDuration, createdAgo: 24 * time.Hour},
+		{name: "never refreshed, signed in to eight days ago", idleDuration: idleDuration, createdAgo: 8 * 24 * time.Hour, wantIdle: true},
+		// The first token outlives the sign-in by its own lifetime, which the bound starts after.
+		{
+			name:         "never refreshed, idle just short of the bound once the first token expired",
+			idleDuration: idleDuration,
+			createdAgo:   idleDuration + initialSessionDuration - time.Minute,
+		},
+		{name: "no idle bound, refreshed long ago", createdAgo: 20 * 24 * time.Hour, sessionExpiredAgo: new(19 * 24 * time.Hour)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Now()
+			authentication := newAuthentication()
+			authentication.CreatedAt = new(now.Add(-testCase.createdAgo))
+			authentication.ExpiresAt = new(now.Add(10 * 24 * time.Hour))
+			if expiredAgo := testCase.sessionExpiredAgo; expiredAgo != nil {
+				authentication.SessionExpiresAt = new(now.Add(-*expiredAgo))
+			}
+
+			m := newManager(t, signer, &stubs{account: newAccount(), authentication: authentication})
+			defer m.Db.Close()
+			m.IdleDuration = testCase.idleDuration
+			m.InitialSessionDuration = initialSessionDuration
+
+			resp, respErr := m.MintSession(authentication, authentication_method.Dbsc, 15*time.Minute)
+
+			if !testCase.wantIdle {
+				if respErr != nil {
+					t.Fatalf("%s: mint session: %+v", testCase.name, respErr)
+				}
+				if resp == nil {
+					t.Fatalf("%s: no response", testCase.name)
+				}
+				return
+			}
+
+			if respErr == nil {
+				t.Fatalf("%s: an idle session was minted a token", testCase.name)
+			}
+			if !errors.Is(respErr.ClientError, sessionErrors.ErrIdleSession) {
+				t.Errorf("%s: client error %v, want %v", testCase.name, respErr.ClientError, sessionErrors.ErrIdleSession)
+			}
+			if problemDetail := respErr.ProblemDetail; problemDetail == nil || problemDetail.Status != http.StatusUnauthorized {
+				t.Errorf("%s: problem detail %+v, want status %d", testCase.name, problemDetail, http.StatusUnauthorized)
+			}
+			if !slices.ContainsFunc(respErr.Headers, func(header *response.HeaderEntry) bool {
+				return header != nil && header.Name == clearSiteDataHeaderName && header.Value == clearSiteDataCookies
+			}) {
+				t.Errorf("%s: the cookie is not cleared: %+v", testCase.name, respErr.Headers)
 			}
 		})
 	}

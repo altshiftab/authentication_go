@@ -161,6 +161,39 @@ func TestUpdateAuthenticationWithDbscPublicKey(t *testing.T) {
 	}
 }
 
+func TestUpdateAuthenticationWithSessionExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	db := altshiftSqlTesting.NewDb()
+	t.Cleanup(func() { _ = db.Close() })
+
+	sessionExpiresAt := time.Now().Add(time.Hour)
+
+	testCases := []struct {
+		name             string
+		id               string
+		sessionExpiresAt time.Time
+		db               *sql.DB
+		canceled         bool
+		wantErr          bool
+	}{
+		{name: "empty id", sessionExpiresAt: sessionExpiresAt, db: db, wantErr: true},
+		{name: "no expiry", id: "id", db: db, wantErr: true},
+		{name: "nil db", id: "id", sessionExpiresAt: sessionExpiresAt, wantErr: true},
+		{name: "canceled ctx", id: "id", sessionExpiresAt: sessionExpiresAt, db: db, canceled: true, wantErr: true},
+		{name: "success", id: "id", sessionExpiresAt: sessionExpiresAt, db: db},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			err := UpdateAuthenticationWithSessionExpiresAt(testCtx(t, testCase.canceled), testCase.id, testCase.sessionExpiresAt, testCase.db)
+			if (err != nil) != testCase.wantErr {
+				t.Errorf("%s: err = %v, wantErr = %v", testCase.name, err, testCase.wantErr)
+			}
+		})
+	}
+}
+
 func TestUpdateAuthenticationWithEnded(t *testing.T) {
 	t.Parallel()
 
