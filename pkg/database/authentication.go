@@ -384,8 +384,17 @@ func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql
 	return nil
 }
 
+// expiredOauthFlowRetention is how long a flow is kept after it expires. A callback that arrives after
+// its flow expired restarts the sign-in from the flow its state names (PopExpiredOauthFlowByState),
+// so expired flows are kept a while for a browser coming back late; past this, the callback is
+// refused and the sign-in is begun again by hand.
+const expiredOauthFlowRetention = time.Hour
+
 const (
-	oauthFlowInsertQuery = `INSERT INTO oauth_flow (state, code_verifier, redirect_url, expires_at) VALUES ($1, $2, $3, $4) RETURNING id;`
+	// Every flow begun removes those expired longer ago than expiredOauthFlowRetention, so that the
+	// table holds only what began within about that time: a flow is begun by anyone who asks, and is
+	// otherwise removed only by a callback that completes it.
+	oauthFlowInsertQuery = `WITH purged AS (DELETE FROM oauth_flow WHERE expires_at <= $5) INSERT INTO oauth_flow (state, code_verifier, redirect_url, expires_at) VALUES ($1, $2, $3, $4) RETURNING id;`
 	oauthFlowDeleteQuery = `DELETE FROM oauth_flow WHERE id = $1 RETURNING state, code_verifier, expires_at, redirect_url;`
 	// The expiry is in the statement, not checked after it, so that a live flow is never removed by
 	// its state alone.
@@ -425,8 +434,14 @@ func InsertOauthFlow(
 		return nil, fmt.Errorf("context err: %w", err)
 	}
 
-	expiresAt := time.Now().Add(expirationDuration)
-	row := database.QueryRowContext(ctx, oauthFlowInsertQuery, state, codeVerifier, redirectUrl, expiresAt)
+	now := time.Now()
+	expiresAt := now.Add(expirationDuration)
+	row := database.QueryRowContext(
+		ctx,
+		oauthFlowInsertQuery,
+		state, codeVerifier, redirectUrl, expiresAt,
+		now.Add(-expiredOauthFlowRetention),
+	)
 	if row == nil {
 		return nil, altshiftErrors.NewWithTrace(nil_error.New("sql row"))
 	}
@@ -503,7 +518,10 @@ func PopExpiredOauthFlowByState(ctx context.Context, state string, now time.Time
 }
 
 const (
-	dbscChallengeInsertQuery = `INSERT INTO dbsc_challenge (challenge, authentication, expires_at) VALUES ($1, $2, $3);`
+	// Every challenge issued removes those that have expired, which no proof can redeem: a challenge is
+	// otherwise removed only by the proof that redeems it, and a browser signs only the last one it
+	// was given.
+	dbscChallengeInsertQuery = `WITH purged AS (DELETE FROM dbsc_challenge WHERE expires_at <= $4) INSERT INTO dbsc_challenge (challenge, authentication, expires_at) VALUES ($1, $2, $3);`
 	dbscChallengeDeleteQuery = `DELETE FROM dbsc_challenge WHERE challenge = $1 AND authentication = $2 RETURNING expires_at;`
 )
 
@@ -534,8 +552,9 @@ func InsertDbscChallenge(
 		return fmt.Errorf("context err: %w", err)
 	}
 
-	expiresAt := time.Now().Add(expirationDuration)
-	if _, err := db.ExecContext(ctx, dbscChallengeInsertQuery, []byte(challenge), authenticationId, expiresAt); err != nil {
+	now := time.Now()
+	expiresAt := now.Add(expirationDuration)
+	if _, err := db.ExecContext(ctx, dbscChallengeInsertQuery, []byte(challenge), authenticationId, expiresAt, now); err != nil {
 		return altshiftErrors.NewWithTrace(
 			fmt.Errorf("sql db exec context: %w", err),
 			expiresAt,

@@ -174,3 +174,147 @@ func TestSelectRefreshAuthentication_SessionExpiresAt(t *testing.T) {
 		}
 	})
 }
+
+// Every flow begun removes the flows that expired more than a while ago, which nothing else would: a
+// flow is begun by anyone who asks, and is otherwise removed only by the callback that completes it.
+// One that expired a moment ago is kept, for a callback arriving late to restart its sign-in from.
+func TestInsertOauthFlow_PurgesExpiredFlows(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+
+	testCases := []struct {
+		name      string
+		expiresIn time.Duration
+		wantKept  bool
+	}{
+		{name: "a live flow is kept", expiresIn: 5 * time.Minute, wantKept: true},
+		{name: "a flow expired a moment ago is kept", expiresIn: -10 * time.Minute, wantKept: true},
+		{name: "a flow expired long ago is removed", expiresIn: -2 * time.Hour},
+		{name: "a flow expired days ago is removed", expiresIn: -72 * time.Hour},
+	}
+
+	states := make([]string, len(testCases))
+	for index, testCase := range testCases {
+		states[index] = rand.Text()
+		if _, err := db.ExecContext(
+			t.Context(),
+			`INSERT INTO oauth_flow (state, code_verifier, redirect_url, expires_at) VALUES ($1, $2, $3, $4);`,
+			states[index], rand.Text(), "https://example.test/", time.Now().Add(testCase.expiresIn),
+		); err != nil {
+			t.Fatalf("%s: insert oauth flow: %v", testCase.name, err)
+		}
+	}
+
+	flow, err := database.InsertOauthFlow(t.Context(), rand.Text(), rand.Text(), "https://example.test/", 8*time.Minute, db)
+	if err != nil {
+		t.Fatalf("insert oauth flow: %v", err)
+	}
+	if flow == nil || flow.Id == "" {
+		t.Fatalf("insert oauth flow: no flow made: %+v", flow)
+	}
+
+	for index, testCase := range testCases {
+		var kept bool
+		if err := db.QueryRowContext(
+			t.Context(),
+			`SELECT EXISTS (SELECT 1 FROM oauth_flow WHERE state = $1);`,
+			states[index],
+		).Scan(&kept); err != nil {
+			t.Fatalf("%s: select oauth flow: %v", testCase.name, err)
+		}
+		if kept != testCase.wantKept {
+			t.Errorf("%s: kept %t, want %t", testCase.name, kept, testCase.wantKept)
+		}
+	}
+}
+
+// Every challenge issued removes the challenges that have expired, which no proof can redeem and
+// which nothing else would remove: a challenge is otherwise removed only by the proof redeeming it.
+func TestInsertDbscChallenge_PurgesExpiredChallenges(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+	authenticationId := newAuthentication(t, db)
+
+	testCases := []struct {
+		name      string
+		expiresIn time.Duration
+		wantKept  bool
+	}{
+		{name: "a live challenge is kept", expiresIn: 5 * time.Minute, wantKept: true},
+		{name: "a challenge expired a moment ago is removed", expiresIn: -time.Second},
+		{name: "a challenge expired days ago is removed", expiresIn: -72 * time.Hour},
+	}
+
+	challenges := make([]string, len(testCases))
+	for index, testCase := range testCases {
+		challenges[index] = rand.Text()
+		if _, err := db.ExecContext(
+			t.Context(),
+			`INSERT INTO dbsc_challenge (challenge, authentication, expires_at) VALUES ($1, $2, $3);`,
+			[]byte(challenges[index]), authenticationId, time.Now().Add(testCase.expiresIn),
+		); err != nil {
+			t.Fatalf("%s: insert dbsc challenge: %v", testCase.name, err)
+		}
+	}
+
+	if err := database.InsertDbscChallenge(t.Context(), rand.Text(), authenticationId, time.Hour, db); err != nil {
+		t.Fatalf("insert dbsc challenge: %v", err)
+	}
+
+	for index, testCase := range testCases {
+		var kept bool
+		if err := db.QueryRowContext(
+			t.Context(),
+			`SELECT EXISTS (SELECT 1 FROM dbsc_challenge WHERE challenge = $1);`,
+			[]byte(challenges[index]),
+		).Scan(&kept); err != nil {
+			t.Fatalf("%s: select dbsc challenge: %v", testCase.name, err)
+		}
+		if kept != testCase.wantKept {
+			t.Errorf("%s: kept %t, want %t", testCase.name, kept, testCase.wantKept)
+		}
+	}
+}
+
+// What the store deletes by is indexed, so that neither a removal nor a purge reads the table whole.
+func TestSchema_IndexesWhatIsDeletedBy(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+
+	testCases := []struct {
+		name   string
+		table  string
+		column string
+	}{
+		{name: "an expired flow is removed by its state", table: "oauth_flow", column: "state"},
+		{name: "expired flows are purged by their expiry", table: "oauth_flow", column: "expires_at"},
+		{name: "a challenge is redeemed by its value", table: "dbsc_challenge", column: "challenge"},
+		{name: "expired challenges are purged by their expiry", table: "dbsc_challenge", column: "expires_at"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var indexed bool
+			if err := db.QueryRowContext(
+				t.Context(),
+				`SELECT EXISTS (
+					SELECT 1 FROM pg_index i
+					JOIN pg_class c ON c.oid = i.indrelid
+					JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = i.indkey[0]
+					WHERE c.relname = $1 AND a.attname = $2
+				);`,
+				testCase.table, testCase.column,
+			).Scan(&indexed); err != nil {
+				t.Fatalf("%s: select index: %v", testCase.name, err)
+			}
+			if !indexed {
+				t.Errorf("%s: no index leads with %s.%s", testCase.name, testCase.table, testCase.column)
+			}
+		})
+	}
+}
