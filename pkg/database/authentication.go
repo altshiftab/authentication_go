@@ -28,11 +28,13 @@ func isIdTokenUniqueViolation(err error) bool {
 }
 
 const (
-	authenticationInsertQuery                  = `INSERT INTO authentication (account, created_at, expires_at, id_token_hash, ip_address, ip_address_country, ip_address_city, user_agent) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`
-	authenticationSelectRefreshQuery           = `SELECT au.ended, au.expires_at, au.created_at, au.dbsc_public_key, a.id, a.email_address, a.locked, c.id, c.name, COALESCE(a.roles, '{}'::text[]) AS roles FROM authentication au JOIN account a ON a.id = au.account LEFT JOIN customer c ON c.id = a.customer WHERE au.id = $1;`
-	authenticationUpdateWithDbscPublicKeyQuery = `UPDATE authentication SET dbsc_public_key = $1 WHERE id = $2;`
-	authenticationUpdateWithEndedQuery         = `UPDATE authentication SET ended = true, ended_at = now() WHERE id = $1;`
-	authenticationSelectIdTokenHashUsedQuery   = `SELECT EXISTS (SELECT 1 FROM authentication WHERE id_token_hash = $1);` //nolint:gosec // A query naming a column, not a credential.
+	authenticationInsertQuery        = `INSERT INTO authentication (account, created_at, expires_at, id_token_hash, ip_address, ip_address_country, ip_address_city, user_agent) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id;`
+	authenticationSelectRefreshQuery = `SELECT au.ended, au.expires_at, au.created_at, au.dbsc_public_key, a.id, a.email_address, a.locked, c.id, c.name, COALESCE(a.roles, '{}'::text[]) AS roles FROM authentication au JOIN account a ON a.id = au.account LEFT JOIN customer c ON c.id = a.customer WHERE au.id = $1;`
+	// The key is written only where none is: a session bound to one device is never moved to another.
+	authenticationUpdateWithDbscPublicKeyQuery       = `UPDATE authentication SET dbsc_public_key = $1 WHERE id = $2 AND dbsc_public_key IS NULL;`
+	authenticationSelectDbscPublicKeyRegisteredQuery = `SELECT dbsc_public_key IS NOT NULL FROM authentication WHERE id = $1;`
+	authenticationUpdateWithEndedQuery               = `UPDATE authentication SET ended = true, ended_at = now() WHERE id = $1;`
+	authenticationSelectIdTokenHashUsedQuery         = `SELECT EXISTS (SELECT 1 FROM authentication WHERE id_token_hash = $1);` //nolint:gosec // A query naming a column, not a credential.
 )
 
 func InsertAuthentication(
@@ -250,6 +252,11 @@ func SelectEmailAddressAccount(ctx context.Context, emailAddress string, databas
 	return account, nil
 }
 
+// UpdateAuthenticationWithDbscPublicKey registers the device key a DBSC session is bound to. A key is
+// registered once. Registration is authenticated by the session cookie alone, so replacing a key would
+// let whoever holds a copy of the cookie move the session to a device of their own and lock the
+// browser it belongs to out of its refreshes; a second registration is refused with
+// ErrDbscPublicKeyRegistered instead, and sql.ErrNoRows says there is no such authentication.
 func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key []byte, database *sql.DB) error {
 	if id == "" {
 		return altshiftErrors.NewWithTrace(empty_error.New("authentication id"))
@@ -282,11 +289,26 @@ func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key [
 		)
 	}
 
-	if rowsAffected == 0 {
-		return altshiftErrors.NewWithTrace(sql.ErrNoRows)
+	if rowsAffected != 0 {
+		return nil
 	}
 
-	return nil
+	// Nothing was written, which the update alone cannot explain: asked after it, so that the refusal
+	// stays the update's and this only says what it refused.
+	row := database.QueryRowContext(ctx, authenticationSelectDbscPublicKeyRegisteredQuery, id)
+	if row == nil {
+		return altshiftErrors.NewWithTrace(nil_error.New("sql row"))
+	}
+
+	var registered bool
+	if err := row.Scan(&registered); err != nil {
+		return altshiftErrors.NewWithTrace(fmt.Errorf("sql row scan: %w", err))
+	}
+	if registered {
+		return altshiftErrors.NewWithTrace(databaseErrors.ErrDbscPublicKeyRegistered)
+	}
+
+	return altshiftErrors.NewWithTrace(sql.ErrNoRows)
 }
 
 func UpdateAuthenticationWithEnded(ctx context.Context, id string, database *sql.DB) error {

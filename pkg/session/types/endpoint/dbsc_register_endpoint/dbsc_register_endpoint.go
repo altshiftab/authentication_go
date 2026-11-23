@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 
+	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	"github.com/altshiftab/authentication_go/pkg/session"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/dbsc_session_response_processor"
@@ -295,12 +297,22 @@ func (e *Endpoint) Initialize(
 		dbCtx, dbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer dbCtxCancel()
 		if err := e.updateAuthenticationWithDbscPublicKey(dbCtx, authenticationId, publicKey, db); err != nil {
-			return nil, &response_error.ResponseError{
-				ServerError: altshiftErrors.New(
-					fmt.Errorf("update authentication with dbsc public key: %w", err),
-					authenticationId, publicKey,
-				),
+			wrappedErr := altshiftErrors.New(
+				fmt.Errorf("update authentication with dbsc public key: %w", err),
+				authenticationId, publicKey,
+			)
+			// The session is bound to a device already. The cookie is all registration asks for, so
+			// a second key is refused rather than taking the session from the device that has it.
+			if errors.Is(err, databaseErrors.ErrDbscPublicKeyRegistered) {
+				return nil, &response_error.ResponseError{
+					ClientError: wrappedErr,
+					ProblemDetail: problem_detail.New(
+						http.StatusConflict,
+						problem_detail_config.WithDetail("A device key is already registered for the session."),
+					),
+				}
 			}
+			return nil, &response_error.ResponseError{ServerError: wrappedErr}
 		}
 
 		origin := e.Origin

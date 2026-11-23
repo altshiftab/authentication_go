@@ -19,8 +19,8 @@ func TestMain(m *testing.M) {
 	os.Exit(Main(m, "api_key_testing"))
 }
 
-// The schema is the library's tables, every one a test of the API key packages reaches, with the
-// extensions they need.
+// The schema is the library's tables, every one a test of the library reaches, with the extensions
+// they need.
 func TestSchema(t *testing.T) {
 	t.Parallel()
 
@@ -41,6 +41,8 @@ func TestSchema(t *testing.T) {
 		{name: "api_key", want: "CREATE TABLE api_key ("},
 		{name: "api_key_assertion", want: "CREATE TABLE api_key_assertion ("},
 		{name: "api_key_authentication", want: "CREATE TABLE api_key_authentication ("},
+		{name: "dbsc_challenge", want: "CREATE TABLE dbsc_challenge ("},
+		{name: "oauth_flow", want: "CREATE TABLE oauth_flow ("},
 	}
 
 	for _, testCase := range testCases {
@@ -315,8 +317,8 @@ func TestNewDatabase(t *testing.T) {
 	).Scan(&tables); err != nil {
 		t.Fatalf("count tables: %v", err)
 	}
-	if tables != 6 {
-		t.Errorf("got %d tables, want 6", tables)
+	if tables != 8 {
+		t.Errorf("got %d tables, want 8", tables)
 	}
 
 	if err := database.Close(); err != nil {

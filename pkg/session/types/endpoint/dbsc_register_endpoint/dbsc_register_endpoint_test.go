@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
 	"github.com/altshiftab/authentication_go/pkg/session"
@@ -719,5 +720,103 @@ func TestEndpoint_CookieDomainNarrowerThanSite(t *testing.T) {
 	}
 	if sessionCookie.Domain != cookieDomain {
 		t.Errorf("reissued cookie domain %q, expected %q", sessionCookie.Domain, cookieDomain)
+	}
+}
+
+// TestEndpoint_KeyRegisteredOnce covers what the endpoint makes of the store's answer to a key. The
+// cookie is all registration asks for, so a session that has a key already keeps it: a second one is
+// refused as a conflict rather than taking the session from the device it is bound to.
+func TestEndpoint_KeyRegisteredOnce(t *testing.T) {
+	t.Parallel()
+
+	validToken, _ := loginTesting.MakeDbscProof("cv")
+
+	testCases := []struct {
+		name               string
+		updateErr          error
+		expectedStatusCode int
+		expectedDetail     string
+	}{
+		{name: "the first key is registered", expectedStatusCode: http.StatusOK},
+		{
+			name:               "a session with a key already is refused another",
+			updateErr:          fmt.Errorf("update: %w", databaseErrors.ErrDbscPublicKeyRegistered),
+			expectedStatusCode: http.StatusConflict,
+			expectedDetail:     "A device key is already registered for the session.",
+		},
+		{
+			name:               "an authentication that is gone is the store's failure",
+			updateErr:          fmt.Errorf("update: %w", sql.ErrNoRows),
+			expectedStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			testEndpoint := New(
+				dbsc_register_endpoint_config.WithUpdateAuthenticationWithDbscPublicKey(
+					func(ctx context.Context, id string, key []byte, database *sql.DB) error {
+						if id != loginTesting.AuthenticationId {
+							return fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, id, loginTesting.AuthenticationId)
+						}
+						return testCase.updateErr
+					},
+				),
+			)
+			testEndpointProcessor, err := dbsc_session_response_processor.New(
+				"https://example.com"+dbsc_register_endpoint_config.DefaultPath,
+				db,
+				dbsc_session_response_processor_config.WithPopDbscChallenge(
+					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
+						return &dbsc_challenge.Challenge{
+							Authentication: &authenticationPkg.Authentication{Id: authenticationId},
+							Challenge:      []byte(challenge),
+							ExpiresAt:      new(time.Now().Add(time.Hour)),
+						}, nil
+					},
+				),
+			)
+			if err != nil {
+				t.Fatalf("%s: dbsc session response processor new: %v", testCase.name, err)
+			}
+
+			if err := testEndpoint.Initialize(defaultAuthorizationRequestParser, testEndpointProcessor, loginTesting.RegisteredDomain); err != nil {
+				t.Fatalf("%s: test endpoint initialize: %v", testCase.name, err)
+			}
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			request, err := http.NewRequestWithContext(t.Context(), testEndpoint.Method, httpServer.URL+testEndpoint.Path, nil)
+			if err != nil {
+				t.Fatalf("%s: new request: %v", testCase.name, err)
+			}
+			request.Header.Set("Cookie", defaultSessionCookieString)
+			request.Header.Set(session.DbscSessionResponseHeaderName, validToken)
+
+			response, err := httpServer.Client().Do(request)
+			if err != nil {
+				t.Fatalf("%s: do: %v", testCase.name, err)
+			}
+			defer func() { _ = response.Body.Close() }()
+
+			if response.StatusCode != testCase.expectedStatusCode {
+				t.Fatalf("%s: status code %d, expected %d", testCase.name, response.StatusCode, testCase.expectedStatusCode)
+			}
+
+			if testCase.expectedDetail != "" {
+				var detail problem_detail.Detail
+				if err := json.UnmarshalRead(response.Body, &detail); err != nil {
+					t.Fatalf("%s: json unmarshal read (problem detail): %v", testCase.name, err)
+				}
+				if detail.Detail != testCase.expectedDetail {
+					t.Errorf("%s: detail %q, expected %q", testCase.name, detail.Detail, testCase.expectedDetail)
+				}
+			}
+		})
 	}
 }

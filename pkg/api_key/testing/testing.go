@@ -26,6 +26,8 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/database/types/api_key_authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/customer"
+	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
+	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser/authorizer_request_parser_config"
@@ -71,16 +73,26 @@ var (
 // and citext for an email address.
 var extensions = []string{"pgcrypto", "citext"}
 
-// Schema is the SQL the library's tables generate: an account with its customer, its sign-ins, and
-// the keys it registers with what they mint.
+// The tables whose type is named for something narrower than the table, as a service generating its
+// schema names them: the table is named after the type.
+type (
+	oauthFlow     struct{ oauth_flow.Flow }
+	dbscChallenge struct{ dbsc_challenge.Challenge }
+)
+
+// Schema is the SQL the library's tables generate: an account with its customer, its sign-ins with
+// the device challenges they are refreshed by, the keys it registers with what they mint, and the
+// sign-ins begun at an identity provider.
 func Schema() (string, error) {
 	tables, err := postgres.Convert(
 		customer.Customer{},
 		account.Account{},
 		authentication.Authentication{},
+		dbscChallenge{},
 		api_key.ApiKey{},
 		api_key_assertion.ApiKeyAssertion{},
 		api_key_authentication.ApiKeyAuthentication{},
+		oauthFlow{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("postgres convert: %w", err)
