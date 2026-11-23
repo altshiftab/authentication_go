@@ -176,6 +176,10 @@ func TestFlowRedirectScheme(t *testing.T) {
 		{name: "an android intent", origin: testOrigin, redirectUrl: "intent://example.com/#Intent;scheme=https;end", wantRefuse: true},
 		{name: "plain http to localhost, from an origin elsewhere", origin: testOrigin, redirectUrl: "http://localhost:3000/", wantRefuse: true},
 		{name: "plain http to localhost, from an origin on it", origin: "http://localhost:8080", redirectUrl: "http://localhost:3000/"},
+		// With no origin the callback's own host says where it is served from, and the test server
+		// is on the loopback address.
+		{name: "plain http to localhost, with no origin, served from this machine", redirectUrl: "http://localhost:3000/"},
+		{name: "plain http elsewhere, with no origin", redirectUrl: "http://example.com/redirect", wantRefuse: true},
 		{name: "a flow redirect that does not parse", origin: testOrigin, redirectUrl: "https://example.com/%zz", wantRefuse: true},
 	}
 

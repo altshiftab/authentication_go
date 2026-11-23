@@ -134,9 +134,10 @@ type Endpoint[T provider_claims.ProviderClaims] struct {
 	// tokenEndpoint is the provider's token URL, as the log's body masks name it; set by Initialize.
 	tokenEndpoint *schema.Url
 
-	// allowLoopbackHttp is whether a flow may send the browser on over plain http to this machine,
-	// which it may when the origin is on it; set by Initialize.
-	allowLoopbackHttp bool
+	// originHostname is the host of the origin given to Initialize, which says whether a flow may
+	// send the browser on over plain http to this machine: it may when the origin is on it. Empty
+	// for an empty origin, where the request's own host says it instead.
+	originHostname string
 }
 
 // Initialize wires the endpoint's runtime dependencies. origin is the base URL
@@ -176,10 +177,11 @@ func (e *Endpoint[T]) Initialize(
 	origin = strings.TrimRight(origin, "/")
 
 	// The login endpoint takes plain http to this machine where it is served from it, as the service
-	// then is; anywhere else it takes https alone, and so does this.
-	e.allowLoopbackHttp = false
+	// then is; anywhere else it takes https alone, and so does this. An origin that does not parse
+	// names no host, which holds the flow to https.
+	e.originHostname = ""
 	if originUrl, err := url.Parse(origin); err == nil {
-		e.allowLoopbackHttp = redirect_scheme.IsLoopback(originUrl.Hostname())
+		e.originHostname = originUrl.Hostname()
 	}
 
 	problemRedirectUrls := make(map[oauth_error.Category]string, len(categoryProblemPaths))
@@ -357,7 +359,12 @@ func (e *Endpoint[T]) Initialize(
 		// The flow's redirect is where the browser is sent once signed in. The login endpoint took
 		// only https, but a flow is the store's, and one begun before it did, or by another, is held
 		// to the same here rather than followed.
-		if flowRedirectUrl, err := url.Parse(oauthFlow.RedirectUrl); err != nil || !redirect_scheme.Allowed(flowRedirectUrl, e.allowLoopbackHttp) {
+		servedHostname := e.originHostname
+		if origin == "" {
+			servedHostname = (&url.URL{Host: request.Host}).Hostname()
+		}
+		allowLoopbackHttp := redirect_scheme.IsLoopback(servedHostname)
+		if flowRedirectUrl, err := url.Parse(oauthFlow.RedirectUrl); err != nil || !redirect_scheme.Allowed(flowRedirectUrl, allowLoopbackHttp) {
 			return nil, &response_error.ResponseError{
 				ClientError: altshiftErrors.NewWithTrace(
 					fmt.Errorf("%w: oauth flow redirect url scheme", altshiftErrors.ErrValidationError),
