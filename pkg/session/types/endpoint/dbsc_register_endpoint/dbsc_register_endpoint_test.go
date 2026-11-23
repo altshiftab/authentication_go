@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -472,6 +473,7 @@ func TestNew(t *testing.T) {
 		altshiftTestingCmp.IgnoreFields(
 			Endpoint{},
 			"updateAuthenticationWithDbscPublicKey",
+			"updateAuthenticationWithSessionExpiresAt",
 		),
 		altshiftTestingCmp.EquateComparable(adapter.Adapter[struct{}]{}),
 	}
@@ -816,6 +818,126 @@ func TestEndpoint_KeyRegisteredOnce(t *testing.T) {
 				if detail.Detail != testCase.expectedDetail {
 					t.Errorf("%s: detail %q, expected %q", testCase.name, detail.Detail, testCase.expectedDetail)
 				}
+			}
+		})
+	}
+}
+
+// TestEndpoint_RecordsSessionExpiresAt covers what binding a session records for its first refresh:
+// when the token the reissued cookie carries expires, which is when the session begins to sit idle.
+// Failing to record it costs that refresh its idle bound and nothing more, so the binding stands;
+// a key that is refused binds nothing and records nothing.
+func TestEndpoint_RecordsSessionExpiresAt(t *testing.T) {
+	t.Parallel()
+
+	validToken, _ := loginTesting.MakeDbscProof("cv")
+
+	testCases := []struct {
+		name               string
+		updateKeyErr       error
+		recordErr          error
+		expectedStatusCode int
+		wantRecorded       bool
+	}{
+		{name: "the token's expiry is recorded", expectedStatusCode: http.StatusOK, wantRecorded: true},
+		{
+			name:               "a failure to record it keeps the binding",
+			recordErr:          sql.ErrConnDone,
+			expectedStatusCode: http.StatusOK,
+			wantRecorded:       true,
+		},
+		{
+			name:               "a refused key records nothing",
+			updateKeyErr:       databaseErrors.ErrDbscPublicKeyRegistered,
+			expectedStatusCode: http.StatusConflict,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var recorded []time.Time
+			var recordedMutex sync.Mutex
+
+			testEndpoint := New(
+				dbsc_register_endpoint_config.WithUpdateAuthenticationWithDbscPublicKey(
+					func(context.Context, string, []byte, *sql.DB) error { return testCase.updateKeyErr },
+				),
+				dbsc_register_endpoint_config.WithUpdateAuthenticationWithSessionExpiresAt(
+					func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error {
+						if id != loginTesting.AuthenticationId {
+							return fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, id, loginTesting.AuthenticationId)
+						}
+						recordedMutex.Lock()
+						defer recordedMutex.Unlock()
+						recorded = append(recorded, sessionExpiresAt)
+						return testCase.recordErr
+					},
+				),
+			)
+			testEndpointProcessor, err := dbsc_session_response_processor.New(
+				"https://example.com"+dbsc_register_endpoint_config.DefaultPath,
+				db,
+				dbsc_session_response_processor_config.WithPopDbscChallenge(
+					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
+						return &dbsc_challenge.Challenge{
+							Authentication: &authenticationPkg.Authentication{Id: authenticationId},
+							Challenge:      []byte(challenge),
+							ExpiresAt:      new(time.Now().Add(time.Hour)),
+						}, nil
+					},
+				),
+			)
+			if err != nil {
+				t.Fatalf("%s: dbsc session response processor new: %v", testCase.name, err)
+			}
+
+			if err := testEndpoint.Initialize(defaultAuthorizationRequestParser, testEndpointProcessor, loginTesting.RegisteredDomain); err != nil {
+				t.Fatalf("%s: test endpoint initialize: %v", testCase.name, err)
+			}
+
+			mux := &muxPkg.Mux{}
+			mux.Add(testEndpoint.Endpoint.Endpoint)
+			httpServer := httptest.NewServer(mux)
+			defer httpServer.Close()
+
+			request, err := http.NewRequestWithContext(t.Context(), testEndpoint.Method, httpServer.URL+testEndpoint.Path, nil)
+			if err != nil {
+				t.Fatalf("%s: new request: %v", testCase.name, err)
+			}
+			request.Header.Set("Cookie", defaultSessionCookieString)
+			request.Header.Set(session.DbscSessionResponseHeaderName, validToken)
+
+			response, err := httpServer.Client().Do(request)
+			if err != nil {
+				t.Fatalf("%s: do: %v", testCase.name, err)
+			}
+			defer func() { _ = response.Body.Close() }()
+
+			if response.StatusCode != testCase.expectedStatusCode {
+				t.Fatalf("%s: status code %d, expected %d", testCase.name, response.StatusCode, testCase.expectedStatusCode)
+			}
+
+			recordedMutex.Lock()
+			defer recordedMutex.Unlock()
+			if !testCase.wantRecorded {
+				if len(recorded) != 0 {
+					t.Errorf("%s: recorded %v, want nothing", testCase.name, recorded)
+				}
+				return
+			}
+			if len(recorded) != 1 {
+				t.Fatalf("%s: recorded %v, want one expiry", testCase.name, recorded)
+			}
+
+			// The reissued cookie expires with the token, so its expiry is what was recorded.
+			cookies := response.Cookies()
+			if len(cookies) != 1 {
+				t.Fatalf("%s: %d cookies set, want one", testCase.name, len(cookies))
+			}
+			if cookieExpiresAt := cookies[0].Expires; !cookieExpiresAt.Equal(recorded[0].Truncate(time.Second)) {
+				t.Errorf("%s: recorded %s, the cookie expires %s", testCase.name, recorded[0], cookieExpiresAt)
 			}
 		})
 	}

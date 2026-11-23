@@ -6,9 +6,11 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 
 	databaseErrors "github.com/altshiftab/authentication_go/pkg/database/errors"
 	"github.com/altshiftab/authentication_go/pkg/session"
@@ -60,6 +62,8 @@ type Endpoint struct {
 	ScopeSpecification                    []*session_instructions.ScopeSpecification
 	AllowedRefreshInitiators              []string
 	updateAuthenticationWithDbscPublicKey func(ctx context.Context, id string, key []byte, database *sql.DB) error
+
+	updateAuthenticationWithSessionExpiresAt func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error
 }
 
 // requestOrigin derives the origin actually being served from the request rather than an assumed
@@ -315,6 +319,20 @@ func (e *Endpoint) Initialize(
 			return nil, &response_error.ResponseError{ServerError: wrappedErr}
 		}
 
+		// The bound cookie is reissued below to expire with the token it carries, and the session
+		// sits idle from then until the browser refreshes it. Recorded so that the first refresh is
+		// held to the idle bound as later ones are. A failure costs only that: a refresh finding no
+		// expiry measures nothing and records one, so the binding is not given up over it.
+		if claims := sessionToken.Claims; claims != nil && claims.ExpiresAt != nil {
+			if err := e.updateAuthenticationWithSessionExpiresAt(dbCtx, authenticationId, claims.ExpiresAt.Time, db); err != nil {
+				slog.WarnContext(
+					ctx,
+					"An error occurred when recording the bound session's token expiry. Its first refresh will not be held to the idle bound.",
+					slog.Any("error", err),
+				)
+			}
+		}
+
 		origin := e.Origin
 		if origin == "" {
 			var err error
@@ -411,6 +429,8 @@ func New(options ...dbsc_register_endpoint_config.Option) *Endpoint {
 		ScopeSpecification:                    config.ScopeSpecification,
 		AllowedRefreshInitiators:              config.AllowedRefreshInitiators,
 		updateAuthenticationWithDbscPublicKey: config.UpdateAuthenticationWithDbscPublicKey,
+
+		updateAuthenticationWithSessionExpiresAt: config.UpdateAuthenticationWithSessionExpiresAt,
 	}
 }
 

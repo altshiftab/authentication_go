@@ -19,9 +19,9 @@ type Authentication struct {
 	IpAddressCountry string           `postgres:"ip_address_country,nullable"`
 	IpAddressCity    string           `postgres:"ip_address_city,nullable"`
 	UserAgent        string           `postgres:"user_agent,nullable"`
-	// SessionExpiresAt is when the session token a device bound session was last refreshed with
-	// expires: when the session began to sit idle, which its refresh is measured against, since it
-	// presents no token of its own. Absent until the first refresh.
+	// SessionExpiresAt is when the session token a device bound session last received expires: when
+	// the session began to sit idle, which its refresh is measured against, since it presents no
+	// token of its own. Recorded when the session is bound and at every refresh.
 	SessionExpiresAt *time.Time `postgres:"session_expires_at,nullable"`
 }
 

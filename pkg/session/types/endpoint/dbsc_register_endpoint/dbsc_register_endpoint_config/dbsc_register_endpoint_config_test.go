@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"testing"
+	"time"
 )
 
 func TestNew(t *testing.T) {
@@ -22,6 +23,9 @@ func TestNew(t *testing.T) {
 	}
 	if config.UpdateAuthenticationWithDbscPublicKey == nil {
 		t.Errorf("nil update authentication with dbsc public key")
+	}
+	if config.UpdateAuthenticationWithSessionExpiresAt == nil {
+		t.Errorf("nil update authentication with session expires at")
 	}
 }
 
@@ -57,6 +61,25 @@ func TestOptions(t *testing.T) {
 
 		if err := config.UpdateAuthenticationWithDbscPublicKey(t.Context(), "", nil, nil); err != nil {
 			t.Fatalf("update authentication with dbsc public key: %v", err)
+		}
+		if !invoked {
+			t.Errorf("expected the configured function to be invoked")
+		}
+	})
+
+	t.Run("with update authentication with session expires at", func(t *testing.T) {
+		t.Parallel()
+
+		invoked := false
+		config := New(WithUpdateAuthenticationWithSessionExpiresAt(
+			func(_ context.Context, _ string, _ time.Time, _ *sql.DB) error {
+				invoked = true
+				return nil
+			},
+		))
+
+		if err := config.UpdateAuthenticationWithSessionExpiresAt(t.Context(), "", time.Time{}, nil); err != nil {
+			t.Fatalf("update authentication with session expires at: %v", err)
 		}
 		if !invoked {
 			t.Errorf("expected the configured function to be invoked")

@@ -3,6 +3,7 @@ package dbsc_register_endpoint_config
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/altshiftab/authentication_go/pkg/database"
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_refresh_endpoint/dbsc_refresh_endpoint_config"
@@ -13,6 +14,9 @@ var (
 	DefaultPath                                  = "/api/session/dbsc/register"
 	DefaultRefreshPath                           = dbsc_refresh_endpoint_config.DefaultPath
 	DefaultUpdateAuthenticationWithDbscPublicKey = database.UpdateAuthenticationWithDbscPublicKey
+	// The token's expiry is recorded when the session is bound, so that its first refresh is held to
+	// the idle bound as every later one is.
+	DefaultUpdateAuthenticationWithSessionExpiresAt = database.UpdateAuthenticationWithSessionExpiresAt
 	// A session covers the whole site by default, so that it applies across subdomains.
 	DefaultIncludeSite = true
 )
@@ -21,7 +25,10 @@ type Config struct {
 	Path                                  string
 	RefreshPath                           string
 	UpdateAuthenticationWithDbscPublicKey func(ctx context.Context, id string, key []byte, database *sql.DB) error
-	IncludeSite                           bool
+	// UpdateAuthenticationWithSessionExpiresAt records when the token the bound cookie carries
+	// expires, which the session's first refresh measures its idleness from.
+	UpdateAuthenticationWithSessionExpiresAt func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error
+	IncludeSite                              bool
 	// ScopeSpecification narrows or widens the session's scope with include and exclude rules.
 	ScopeSpecification []*session_instructions.ScopeSpecification
 	// AllowedRefreshInitiators names hosts outside the scope that may still trigger a refresh.
@@ -35,10 +42,11 @@ type Option func(*Config)
 
 func New(options ...Option) *Config {
 	config := &Config{
-		Path:                                  DefaultPath,
-		RefreshPath:                           DefaultRefreshPath,
-		UpdateAuthenticationWithDbscPublicKey: DefaultUpdateAuthenticationWithDbscPublicKey,
-		IncludeSite:                           DefaultIncludeSite,
+		Path:                                     DefaultPath,
+		RefreshPath:                              DefaultRefreshPath,
+		UpdateAuthenticationWithDbscPublicKey:    DefaultUpdateAuthenticationWithDbscPublicKey,
+		UpdateAuthenticationWithSessionExpiresAt: DefaultUpdateAuthenticationWithSessionExpiresAt,
+		IncludeSite:                              DefaultIncludeSite,
 	}
 	for _, option := range options {
 		option(config)
@@ -86,5 +94,13 @@ func WithScopeSpecification(scopeSpecification []*session_instructions.ScopeSpec
 func WithAllowedRefreshInitiators(allowedRefreshInitiators []string) Option {
 	return func(config *Config) {
 		config.AllowedRefreshInitiators = allowedRefreshInitiators
+	}
+}
+
+func WithUpdateAuthenticationWithSessionExpiresAt(
+	updateAuthenticationWithSessionExpiresAt func(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error,
+) Option {
+	return func(config *Config) {
+		config.UpdateAuthenticationWithSessionExpiresAt = updateAuthenticationWithSessionExpiresAt
 	}
 }

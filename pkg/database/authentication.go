@@ -319,7 +319,7 @@ func UpdateAuthenticationWithDbscPublicKey(ctx context.Context, id string, key [
 }
 
 // UpdateAuthenticationWithSessionExpiresAt records when the session token a device bound session was
-// just refreshed with expires, which its next refresh measures its idleness against.
+// just given expires, which its next refresh measures its idleness against.
 func UpdateAuthenticationWithSessionExpiresAt(ctx context.Context, id string, sessionExpiresAt time.Time, database *sql.DB) error {
 	if id == "" {
 		return altshiftErrors.NewWithTrace(empty_error.New("authentication id"))

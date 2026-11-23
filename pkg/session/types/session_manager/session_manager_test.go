@@ -962,44 +962,28 @@ func TestManager_MintSession(t *testing.T) {
 
 // TestManager_MintSession_IdleBound covers the idle bound for a session that presents no token: a
 // device bound one, refreshed because its cookie expired. How long it has sat idle is read from the
-// authentication -- the expiry recorded at its last refresh, or before the first, the one its sign-in
-// gave it -- and past the bound it is refused as RefreshSession refuses a token, clearing the cookie.
+// expiry its authentication recorded when it was bound or last refreshed, and past the bound it is
+// refused as RefreshSession refuses a token, clearing the cookie. An authentication bound before the
+// expiry was recorded has none, and is not measured: refusing it would end every session bound
+// before the bound reached device bound sessions at all, however recently it was used.
 func TestManager_MintSession_IdleBound(t *testing.T) {
 	t.Parallel()
 
 	signer := newTestSigner(t)
 
-	const (
-		idleDuration           = 7 * 24 * time.Hour
-		initialSessionDuration = 15 * time.Minute
-	)
+	const idleDuration = 7 * 24 * time.Hour
 
 	testCases := []struct {
 		name              string
 		idleDuration      time.Duration
-		createdAgo        time.Duration
 		sessionExpiredAgo *time.Duration
 		wantIdle          bool
 	}{
-		{name: "refreshed a day ago", idleDuration: idleDuration, createdAgo: 20 * 24 * time.Hour, sessionExpiredAgo: new(24 * time.Hour)},
-		{
-			name:              "refreshed eight days ago",
-			idleDuration:      idleDuration,
-			createdAgo:        20 * 24 * time.Hour,
-			sessionExpiredAgo: new(8 * 24 * time.Hour),
-			wantIdle:          true,
-		},
-		// Before its first refresh a session has only what its sign-in gave it, which is measured
-		// from when it was signed in to.
-		{name: "never refreshed, signed in to a day ago", idleDuration: idleDuration, createdAgo: 24 * time.Hour},
-		{name: "never refreshed, signed in to eight days ago", idleDuration: idleDuration, createdAgo: 8 * 24 * time.Hour, wantIdle: true},
-		// The first token outlives the sign-in by its own lifetime, which the bound starts after.
-		{
-			name:         "never refreshed, idle just short of the bound once the first token expired",
-			idleDuration: idleDuration,
-			createdAgo:   idleDuration + initialSessionDuration - time.Minute,
-		},
-		{name: "no idle bound, refreshed long ago", createdAgo: 20 * 24 * time.Hour, sessionExpiredAgo: new(19 * 24 * time.Hour)},
+		{name: "refreshed a day ago", idleDuration: idleDuration, sessionExpiredAgo: new(24 * time.Hour)},
+		{name: "refreshed just short of the bound", idleDuration: idleDuration, sessionExpiredAgo: new(idleDuration - time.Minute)},
+		{name: "refreshed eight days ago", idleDuration: idleDuration, sessionExpiredAgo: new(8 * 24 * time.Hour), wantIdle: true},
+		{name: "bound before an expiry was recorded", idleDuration: idleDuration},
+		{name: "no idle bound, refreshed long ago", sessionExpiredAgo: new(19 * 24 * time.Hour)},
 	}
 
 	for _, testCase := range testCases {
@@ -1008,7 +992,7 @@ func TestManager_MintSession_IdleBound(t *testing.T) {
 
 			now := time.Now()
 			authentication := newAuthentication()
-			authentication.CreatedAt = new(now.Add(-testCase.createdAgo))
+			authentication.CreatedAt = new(now.Add(-20 * 24 * time.Hour))
 			authentication.ExpiresAt = new(now.Add(10 * 24 * time.Hour))
 			if expiredAgo := testCase.sessionExpiredAgo; expiredAgo != nil {
 				authentication.SessionExpiresAt = new(now.Add(-*expiredAgo))
@@ -1017,7 +1001,6 @@ func TestManager_MintSession_IdleBound(t *testing.T) {
 			m := newManager(t, signer, &stubs{account: newAccount(), authentication: authentication})
 			defer m.Db.Close()
 			m.IdleDuration = testCase.idleDuration
-			m.InitialSessionDuration = initialSessionDuration
 
 			resp, respErr := m.MintSession(authentication, authentication_method.Dbsc, 15*time.Minute)
 
