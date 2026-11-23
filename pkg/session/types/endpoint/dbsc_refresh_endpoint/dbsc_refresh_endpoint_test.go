@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,6 +37,10 @@ import (
 var (
 	errTestAuthenticationIdMismatch = errors.New("authentication id mismatch")
 )
+
+// testAuthenticationId is the session the browser names: the authentication id registration handed
+// out, which is a uuid.
+const testAuthenticationId = "6f1c2b9e-3d4a-4f5b-8c7d-9e0a1b2c3d4e"
 
 var defaultTestEndpoint = New()
 var defaultHttpServer *httptest.Server
@@ -96,16 +101,18 @@ func TestEndpoint(t *testing.T) {
 		expiredAuthentication bool
 		spentChallenge        bool
 		expiredChallenge      bool
+		// wantNoChallenge is a request that must be answered without a challenge being stored.
+		wantNoChallenge bool
 	}{
 		{
 			// The challenge on the success is what makes the next refresh a single request: the
 			// browser caches it and signs it then, instead of having to be challenged first.
 			name: "valid session response token happy path",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusNoContent,
 				ExpectedHeaders: [][2]string{
-					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, testAuthenticationId)},
 				},
 			},
 		},
@@ -116,10 +123,10 @@ func TestEndpoint(t *testing.T) {
 			// retries. An error instead leaves it nothing to do but repeat the spent proof.
 			name: "spent challenge is answered with a fresh challenge",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusForbidden,
 				ExpectedHeaders: [][2]string{
-					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, testAuthenticationId)},
 				},
 			},
 			spentChallenge: true,
@@ -131,10 +138,10 @@ func TestEndpoint(t *testing.T) {
 			// proof that can never be accepted.
 			name: "expired challenge is answered with a fresh challenge",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusForbidden,
 				ExpectedHeaders: [][2]string{
-					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, testAuthenticationId)},
 				},
 			},
 			expiredChallenge: true,
@@ -143,7 +150,7 @@ func TestEndpoint(t *testing.T) {
 			// A session that cannot be refreshed again is ended, so the browser stops applying it.
 			name: "no db authentication ends the session",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusOK,
 				ExpectedBody:       []byte(`{"continue":false}`),
 			},
@@ -152,7 +159,7 @@ func TestEndpoint(t *testing.T) {
 		{
 			name: "ended authentication ends the session",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusOK,
 				ExpectedBody:       []byte(`{"continue":false}`),
 			},
@@ -161,7 +168,7 @@ func TestEndpoint(t *testing.T) {
 		{
 			name: "expired authentication ends the session",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusOK,
 				ExpectedBody:       []byte(`{"continue":false}`),
 			},
@@ -170,7 +177,7 @@ func TestEndpoint(t *testing.T) {
 		{
 			name: "valid session response token, empty public key",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusBadRequest,
 				ExpectedProblemDetail: &problem_detail.Detail{
 					Detail: "No public key for authentication.",
@@ -181,7 +188,7 @@ func TestEndpoint(t *testing.T) {
 		{
 			name: "valid session response token, public key mismatch",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, validToken}},
 				ExpectedStatusCode: http.StatusBadRequest,
 				ExpectedProblemDetail: &problem_detail.Detail{
 					Detail: "Invalid token.",
@@ -192,7 +199,7 @@ func TestEndpoint(t *testing.T) {
 		{
 			name: "invalid session response token",
 			args: &muxTesting.Args{
-				Headers:               [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}, {session.DbscSessionResponseHeaderName, "invalid"}},
+				Headers:               [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}, {session.DbscSessionResponseHeaderName, "invalid"}},
 				ExpectedStatusCode:    http.StatusBadRequest,
 				ExpectedProblemDetail: &problem_detail.Detail{Detail: "Invalid token."},
 			},
@@ -201,7 +208,7 @@ func TestEndpoint(t *testing.T) {
 			name: "multiple session response headers",
 			args: &muxTesting.Args{
 				Headers: [][2]string{
-					{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId},
+					{session.DbscSessionIdHeaderName, testAuthenticationId},
 					{"Secure-Session-Response", "val1"},
 					{"Secure-Session-Response", "val2"},
 				},
@@ -225,12 +232,59 @@ func TestEndpoint(t *testing.T) {
 			},
 		},
 		{
+			// Nothing names a session but a uuid, so anything else is turned away before the store
+			// is asked about it or anything is stored for it.
+			name: "a session id that is no uuid is refused",
+			args: &muxTesting.Args{
+				Headers:               [][2]string{{session.DbscSessionIdHeaderName, "test-authentication-id"}},
+				ExpectedStatusCode:    http.StatusBadRequest,
+				ExpectedProblemDetail: &problem_detail.Detail{Detail: "The session id is malformed."},
+			},
+			wantNoChallenge: true,
+		},
+		{
+			// A challenge is a row stored for the session, so none is stored for one that is not
+			// there; the browser is told to stop applying it instead.
+			name: "no proof and no db authentication ends the session without a challenge",
+			args: &muxTesting.Args{
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}},
+				ExpectedStatusCode: http.StatusOK,
+				ExpectedBody:       []byte(`{"continue":false}`),
+			},
+			noDbAuthentication: true,
+			wantNoChallenge:    true,
+		},
+		{
+			name: "no proof and an ended authentication ends the session without a challenge",
+			args: &muxTesting.Args{
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}},
+				ExpectedStatusCode: http.StatusOK,
+				ExpectedBody:       []byte(`{"continue":false}`),
+			},
+			endedAuthentication: true,
+			wantNoChallenge:     true,
+		},
+		{
+			// A session with no key has nothing to refresh with. A challenge handed to it is one
+			// that registration would accept, from whoever holds the session's cookie.
+			name: "no proof and no registered key is refused without a challenge",
+			args: &muxTesting.Args{
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}},
+				ExpectedStatusCode: http.StatusBadRequest,
+				ExpectedProblemDetail: &problem_detail.Detail{
+					Detail: "No public key for authentication.",
+				},
+			},
+			emptyPublicKey:  true,
+			wantNoChallenge: true,
+		},
+		{
 			name: "no session response header happy path",
 			args: &muxTesting.Args{
-				Headers:            [][2]string{{session.DbscSessionIdHeaderName, loginTesting.AuthenticationId}},
+				Headers:            [][2]string{{session.DbscSessionIdHeaderName, testAuthenticationId}},
 				ExpectedStatusCode: http.StatusForbidden,
 				ExpectedHeaders: [][2]string{
-					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, loginTesting.AuthenticationId)},
+					{session.DbscSessionChallengeHeaderName, fmt.Sprintf("\"%s\";id=\"%s\"", testChallenge, testAuthenticationId)},
 				},
 			},
 		},
@@ -246,8 +300,8 @@ func TestEndpoint(t *testing.T) {
 				db,
 				dbsc_session_response_processor_config.WithPopDbscChallenge(
 					func(ctx context.Context, challenge string, authenticationId string, db *sql.DB) (*dbsc_challenge.Challenge, error) {
-						if authenticationId != loginTesting.AuthenticationId {
-							return nil, fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, authenticationId, loginTesting.AuthenticationId)
+						if authenticationId != testAuthenticationId {
+							return nil, fmt.Errorf("%w: got %s, want %s", errTestAuthenticationIdMismatch, authenticationId, testAuthenticationId)
 						}
 
 						// How the store reports a challenge that has been redeemed already.
@@ -276,8 +330,8 @@ func TestEndpoint(t *testing.T) {
 			}
 
 			testEndpoint.selectRefreshAuthentication = func(ctx context.Context, id string, database *sql.DB) (*authenticationPkg.Authentication, error) {
-				if id != loginTesting.AuthenticationId {
-					t.Fatalf("expected id and authentication id to match: got %s, want %s", id, loginTesting.AuthenticationId)
+				if id != testAuthenticationId {
+					t.Fatalf("expected id and authentication id to match: got %s, want %s", id, testAuthenticationId)
 				}
 
 				if tc.noDbAuthentication {
@@ -316,13 +370,16 @@ func TestEndpoint(t *testing.T) {
 				return testChallenge, nil
 			}
 
+			var challengesInserted atomic.Int32
 			testEndpoint.insertDbscChallenge = func(ctx context.Context, challenge string, authenticationId string, challengeDuration time.Duration, db *sql.DB) error {
+				challengesInserted.Add(1)
+
 				if challenge != testChallenge {
 					t.Fatalf("expected challenge to match: got %s, want %s", challenge, testChallenge)
 				}
 
-				if authenticationId != loginTesting.AuthenticationId {
-					t.Fatalf("expected authentication id to match: got %s, want %s", authenticationId, loginTesting.AuthenticationId)
+				if authenticationId != testAuthenticationId {
+					t.Fatalf("expected authentication id to match: got %s, want %s", authenticationId, testAuthenticationId)
 				}
 
 				if challengeDuration != testEndpoint.ChallengeDuration {
@@ -341,6 +398,10 @@ func TestEndpoint(t *testing.T) {
 			tc.args.Method = testEndpoint.Method
 
 			muxTesting.TestArgs(t, tc.args, httpServer.URL)
+
+			if inserted := challengesInserted.Load(); tc.wantNoChallenge && inserted != 0 {
+				t.Errorf("%s: %d challenges stored, want none", tc.name, inserted)
+			}
 		})
 	}
 }

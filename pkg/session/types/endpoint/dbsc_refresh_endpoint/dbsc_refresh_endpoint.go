@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+	"uuid"
 
 	authenticationPkg "github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/session"
@@ -124,8 +125,23 @@ func (e *Endpoint) Initialize(
 			}
 		}
 
-		// The session identifier handed out at registration is the authentication id.
-		authenticationId := sessionId
+		// The session identifier handed out at registration is the authentication id, which is a
+		// uuid. Anything else names no session, and is refused here rather than put to the store,
+		// whose refusal of its syntax would read as the store failing. It is put in canonical form,
+		// since the parser accepts forms the store does not.
+		authenticationUuid, err := uuid.Parse(sessionId)
+		if err != nil {
+			return nil, &response_error.ResponseError{
+				ClientError: altshiftErrors.NewWithTrace(
+					fmt.Errorf("%w: uuid parse (session id): %w", altshiftErrors.ErrParseError, err),
+				),
+				ProblemDetail: problem_detail.New(
+					http.StatusBadRequest,
+					problem_detail_config.WithDetail("The session id is malformed."),
+				),
+			}
+		}
+		authenticationId := authenticationUuid.String()
 
 		sessionResponseValue, err := utils.GetSingleHeader(sessionResponseHeaderName, requestHeader)
 		if err != nil && !errors.Is(err, altshiftHttpErrors.ErrMissingHeader) {
@@ -186,11 +202,10 @@ func (e *Endpoint) Initialize(
 			}, nil
 		}
 
-		// Without a proof of possession, answer with a challenge for the browser to sign.
-		if sessionResponseValue == "" {
-			return challengeResponse()
-		}
-
+		// The session is looked up before anything is issued for it, a challenge included. The
+		// endpoint is public, so a challenge handed to any id asked about would be a row stored for
+		// anyone who asks, and one handed to a session with no key would be a challenge for whoever
+		// holds its cookie to register a key of their own with.
 		selectDbCtx, selectDbCtxCancel := altshiftDatabase.MakeTimeoutCtx(ctx)
 		defer selectDbCtxCancel()
 
@@ -223,6 +238,11 @@ func (e *Endpoint) Initialize(
 					problem_detail_config.WithDetail("No public key for authentication."),
 				),
 			}
+		}
+
+		// Without a proof of possession, answer with a challenge for the browser to sign.
+		if sessionResponseValue == "" {
+			return challengeResponse()
 		}
 
 		if _, responseError := dbscSessionResponseProcessor.Process(
