@@ -8,7 +8,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -29,8 +31,10 @@ import (
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	endpointPkg "github.com/altshiftab/utils_go/pkg/http/mux/types/endpoint"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/request_parser/token_header_extractor"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claim_strings"
 	"github.com/altshiftab/utils_go/pkg/json/jose/jwt/types/claims/registered_claims"
@@ -1469,20 +1473,146 @@ func TestManager_MintToken_AuthenticationMethod(t *testing.T) {
 	}
 }
 
-func TestClientMetadataFromContext(t *testing.T) {
+// clientHeaders are what the intil load balancer sets on every request, replacing whatever the
+// client sent, and what a client reaching a service by any other way can send of its own accord.
+var clientHeaders = map[string]string{
+	"X-Client-Ip-Address":           "203.0.113.5",
+	"X-Client-Geo-City-Name":        "Stockholm",
+	"X-Client-Geo-Country-Iso-Code": "SE",
+}
+
+func withHeaders(headers ...map[string]string) map[string]string {
+	merged := make(map[string]string)
+	for _, header := range headers {
+		maps.Copy(merged, header)
+	}
+	return merged
+}
+
+func newClientRequest(t *testing.T, remoteAddr string, headers map[string]string) *http.Request {
+	t.Helper()
+
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/", nil)
+	request.RemoteAddr = remoteAddr
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
+	return request
+}
+
+// The metadata of a request served by a mux is what the mux resolved, as it was told to trust the
+// proxies in front, and never what the request's own headers say where nothing in front is trusted
+// to have written them.
+func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 	t.Parallel()
 
-	makeRequest := func(remoteAddr string, headers map[string]string) *http.Request {
-		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/", nil)
-		if err != nil {
-			t.Fatalf("new request: %v", err)
-		}
-		request.RemoteAddr = remoteAddr
-		for name, value := range headers {
-			request.Header.Set(name, value)
-		}
-		return request
+	testCases := []struct {
+		name               string
+		trustForwardedFor  bool
+		trustClientHeaders bool
+		remoteAddr         string
+		headers            map[string]string
+		want               authenticationPkg.ClientMetadata
+	}{
+		{
+			// signals_login: the load balancer's address and location, as before. Its X-Forwarded-For
+			// keeps what the client sent at the front.
+			name:               "trusted client headers",
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers: withHeaders(clientHeaders, map[string]string{
+				"X-Forwarded-For": "198.51.100.66, 203.0.113.5, 10.0.0.1",
+				"User-Agent":      "test-agent",
+			}),
+			want: authenticationPkg.ClientMetadata{
+				IpAddress:        "203.0.113.5",
+				IpAddressCountry: "Sweden",
+				IpAddressCity:    "Stockholm",
+				UserAgent:        "test-agent",
+			},
+		},
+		{
+			name:               "trusted client headers ahead of a trusted X-Forwarded-For",
+			trustForwardedFor:  true,
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers:            withHeaders(clientHeaders, map[string]string{"X-Forwarded-For": "198.51.100.9, 10.0.0.1"}),
+			want:               authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCountry: "Sweden", IpAddressCity: "Stockholm"},
+		},
+		{
+			name:               "trusted client headers without the client's address",
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers:            map[string]string{"X-Forwarded-For": "198.51.100.66, 10.0.0.1"},
+			want:               authenticationPkg.ClientMetadata{IpAddress: "10.0.0.1"},
+		},
+		{
+			// vvvp_login: Google's front end rewrites X-Forwarded-For, and sets no X-Client-*, so
+			// those are the client's.
+			name:              "trusted X-Forwarded-For",
+			trustForwardedFor: true,
+			remoteAddr:        "169.254.1.1:443",
+			headers: withHeaders(clientHeaders, map[string]string{
+				"X-Forwarded-For": " 198.51.100.9 , 169.254.1.1",
+				"User-Agent":      "test-agent",
+			}),
+			want: authenticationPkg.ClientMetadata{IpAddress: "198.51.100.9", UserAgent: "test-agent"},
+		},
+		{
+			name:              "trusted X-Forwarded-For that names no address",
+			trustForwardedFor: true,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string]string{"X-Forwarded-For": "unknown, 198.51.100.9"}),
+			want:              authenticationPkg.ClientMetadata{IpAddress: "169.254.1.1"},
+		},
+		{
+			name:       "nothing trusted",
+			remoteAddr: "203.0.113.7:51234",
+			headers:    withHeaders(clientHeaders, map[string]string{"X-Forwarded-For": "198.51.100.9"}),
+			want:       authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
+		},
+		{
+			name: "nothing trusted and no peer",
+			want: authenticationPkg.ClientMetadata{},
+		},
 	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got *authenticationPkg.ClientMetadata
+			mux := muxPkg.New(&endpointPkg.Endpoint{
+				Path:   "/",
+				Method: http.MethodGet,
+				Public: true,
+				Handler: func(request *http.Request, _ []byte) (*response.Response, *response_error.ResponseError) {
+					got = ClientMetadataFromContext(request.Context())
+					return &response.Response{StatusCode: http.StatusNoContent}, nil
+				},
+			})
+			mux.TrustForwardedFor = testCase.trustForwardedFor
+			mux.TrustClientHeaders = testCase.trustClientHeaders
+
+			recorder := httptest.NewRecorder()
+			mux.ServeHTTP(recorder, newClientRequest(t, testCase.remoteAddr, testCase.headers))
+
+			if recorder.Code != http.StatusNoContent {
+				t.Fatalf("status: got %d, want %d", recorder.Code, http.StatusNoContent)
+			}
+			if got == nil {
+				t.Fatal("no client metadata")
+			}
+			if *got != testCase.want {
+				t.Errorf("got %+v, want %+v", *got, testCase.want)
+			}
+		})
+	}
+}
+
+// A context no mux resolved has nothing trusted in it.
+func TestClientMetadataFromContext(t *testing.T) {
+	t.Parallel()
 
 	testCases := []struct {
 		name string
@@ -1499,54 +1629,17 @@ func TestClientMetadataFromContext(t *testing.T) {
 			name: "no request",
 		},
 		{
-			name:    "the load balancer's client address",
-			request: makeRequest("10.0.0.1:443", map[string]string{"X-Client-Ip-Address": "203.0.113.5", "User-Agent": "test-agent"}),
-			want:    &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", UserAgent: "test-agent"},
+			name: "an http context no mux resolved",
+			request: newClientRequest(t, "203.0.113.7:51234", withHeaders(clientHeaders, map[string]string{
+				"X-Forwarded-For": "198.51.100.9",
+				"User-Agent":      "test-agent",
+			})),
+			want: &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7", UserAgent: "test-agent"},
 		},
 		{
-			name: "the load balancer's client address over a forged X-Forwarded-For",
-			request: makeRequest("10.0.0.1:443", map[string]string{
-				"X-Client-Ip-Address": "203.0.113.5",
-				"X-Forwarded-For":     "198.51.100.9, 203.0.113.5, 10.0.0.1",
-			}),
-			want: &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5"},
-		},
-		{
-			name:    "X-Forwarded-For without the load balancer's address",
-			request: makeRequest("10.0.0.1:443", map[string]string{"X-Forwarded-For": " 198.51.100.9 , 10.0.0.1"}),
-			want:    &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.9"},
-		},
-		{
-			name: "X-Forwarded-For when the load balancer's address is not one",
-			request: makeRequest("10.0.0.1:443", map[string]string{
-				"X-Client-Ip-Address": "not-an-address",
-				"X-Forwarded-For":     "198.51.100.9",
-			}),
-			want: &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.9"},
-		},
-		{
-			name:    "RemoteAddr without any header",
-			request: makeRequest("203.0.113.7:51234", nil),
-			want:    &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
-		},
-		{
-			name:    "RemoteAddr when X-Forwarded-For is not an address",
-			request: makeRequest("203.0.113.7:51234", map[string]string{"X-Forwarded-For": "unknown"}),
-			want:    &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
-		},
-		{
-			name:    "no address at all",
-			request: makeRequest("", nil),
+			name:    "a peer that is not an address",
+			request: newClientRequest(t, "pipe", clientHeaders),
 			want:    &authenticationPkg.ClientMetadata{},
-		},
-		{
-			name: "geo headers",
-			request: makeRequest("10.0.0.1:443", map[string]string{
-				"X-Client-Ip-Address":           "203.0.113.5",
-				"X-Client-Geo-City-Name":        "Stockholm",
-				"X-Client-Geo-Country-Iso-Code": "SE",
-			}),
-			want: &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCity: "Stockholm", IpAddressCountry: "Sweden"},
 		},
 	}
 

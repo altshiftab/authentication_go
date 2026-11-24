@@ -67,20 +67,25 @@ type Manager struct {
 	insertDbscChallenge       func(ctx context.Context, challenge string, authenticationId string, expirationDuration time.Duration, db *sql.DB) error
 }
 
-// ClientMetadataFromContext derives the client information persisted with an
-// authentication from the HTTP context carried on ctx. The client IP is taken
-// from X-Client-Ip-Address, which the load balancer sets from the connection it
-// accepted and replaces if the client sent one, so it cannot be forged. Without
-// it, the first X-Forwarded-For entry is used, and then RemoteAddr: behind the
-// load balancer X-Forwarded-For begins with whatever the client chose to send,
-// so it is a fallback for a service reached some other way, not the answer.
-// Geo fields come from the load balancer's X-Client-Geo-* headers. It returns
-// nil when no HTTP context is present (e.g. non-HTTP callers), which
-// InsertAuthentication stores as NULLs.
+// ClientMetadataFromContext derives the client information persisted with an authentication from
+// the HTTP context the mux carries on ctx.
+//
+// The address is the one the mux resolved as the request arrived, from the headers it was told to
+// trust -- X-Client-Ip-Address behind a load balancer that sets it, the first X-Forwarded-For entry
+// behind a proxy that rewrites it, such as Google's front end in front of Cloud Run and Firebase
+// Hosting -- and otherwise the connection's peer. No header is read for it here: what the request
+// says of its own client is the client's to write unless something in front replaced it, and the
+// mux is where a service says what is in front of it (TRUST_CLIENT_HEADERS, TRUST_FORWARDED_FOR).
+// The city and the country come from the load balancer's X-Client-Geo-* headers only where the mux
+// trusts the client headers, and are left empty otherwise.
+//
+// An HTTP context that no mux resolved has nothing trusted: the peer's address and no location. It
+// returns nil when there is no HTTP context, or no request in it, which InsertAuthentication stores
+// as NULLs.
 //
 // Exported because an authentication is not only written here: a token minted against a key the
 // account registered records where it was asked for the same way a sign-in does, and reading the
-// headers a second time elsewhere would be a second answer to one question.
+// request a second time elsewhere would be a second answer to one question.
 func ClientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMetadata {
 	httpContext, ok := ctx.Value(muxPkg.MuxHttpContextContextKey).(*altshiftHttpTypes.HttpContext)
 	if !ok || httpContext == nil {
@@ -92,30 +97,22 @@ func ClientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMet
 		return nil
 	}
 
-	metadata := &authenticationPkg.ClientMetadata{UserAgent: request.UserAgent()}
+	metadata := &authenticationPkg.ClientMetadata{
+		IpAddress: httpContext.ClientAddress,
+		UserAgent: request.UserAgent(),
+	}
 
-	if header := request.Header; header != nil {
-		if clientIpAddress := strings.TrimSpace(header.Get("X-Client-Ip-Address")); net.ParseIP(clientIpAddress) != nil {
-			metadata.IpAddress = clientIpAddress
-		} else if xForwardedFor := header.Get("X-Forwarded-For"); xForwardedFor != "" {
-			client := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
-			if net.ParseIP(client) != nil {
-				metadata.IpAddress = client
-			}
+	if metadata.IpAddress == "" {
+		if host, _, err := net.SplitHostPort(request.RemoteAddr); err == nil && net.ParseIP(host) != nil {
+			metadata.IpAddress = host
 		}
+	}
 
+	if header := request.Header; header != nil && httpContext.TrustClientHeaders {
 		metadata.IpAddressCity = header.Get("X-Client-Geo-City-Name")
 
 		if countryIsoCode := header.Get("X-Client-Geo-Country-Iso-Code"); countryIsoCode != "" {
 			metadata.IpAddressCountry = iso3166.CountryName(countryIsoCode)
-		}
-	}
-
-	if metadata.IpAddress == "" {
-		if remoteAddr := request.RemoteAddr; remoteAddr != "" {
-			if host, _, err := net.SplitHostPort(remoteAddr); err == nil && net.ParseIP(host) != nil {
-				metadata.IpAddress = host
-			}
 		}
 	}
 
