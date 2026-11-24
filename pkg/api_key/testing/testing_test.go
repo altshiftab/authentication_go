@@ -43,6 +43,10 @@ func TestSchema(t *testing.T) {
 		{name: "api_key_authentication", want: "CREATE TABLE api_key_authentication ("},
 		{name: "dbsc_challenge", want: "CREATE TABLE dbsc_challenge ("},
 		{name: "oauth_flow", want: "CREATE TABLE oauth_flow ("},
+		{name: "oauth_authorization_request", want: "CREATE TABLE oauth_authorization_request ("},
+		{name: "oauth_authorization_code", want: "CREATE TABLE oauth_authorization_code ("},
+		{name: "oauth_grant", want: "CREATE TABLE oauth_grant ("},
+		{name: "oauth_refresh_token", want: "CREATE TABLE oauth_refresh_token ("},
 	}
 
 	for _, testCase := range testCases {
@@ -317,8 +321,8 @@ func TestNewDatabase(t *testing.T) {
 	).Scan(&tables); err != nil {
 		t.Fatalf("count tables: %v", err)
 	}
-	if tables != 8 {
-		t.Errorf("got %d tables, want 8", tables)
+	if tables != 12 {
+		t.Errorf("got %d tables, want 12", tables)
 	}
 
 	if err := database.Close(); err != nil {
@@ -335,5 +339,20 @@ func TestNewDatabase(t *testing.T) {
 	}
 	if exists {
 		t.Errorf("The database %s is still there after it was closed.", database.name)
+	}
+}
+
+// A pool is bounded as asked, and reaches the package's database, OAuth tables and all.
+func TestPool(t *testing.T) {
+	t.Parallel()
+
+	pool := Pool(t, 1)
+	if limit := pool.Stats().MaxOpenConnections; limit != 1 {
+		t.Errorf("max open connections %d, want 1", limit)
+	}
+
+	var grants int
+	if err := pool.QueryRowContext(t.Context(), `SELECT count(*) FROM oauth_grant;`).Scan(&grants); err != nil {
+		t.Fatalf("count grants: %v", err)
 	}
 }

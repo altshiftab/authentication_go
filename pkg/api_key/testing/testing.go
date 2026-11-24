@@ -1,6 +1,7 @@
-// Package testing is what the API key packages' tests share: a database of a test package's own, on
-// the server TEST_DATABASE_URL names, with the library's tables in it; accounts in it; and session
-// tokens for them, signed by a key the tests hold, as a browser or a minted token would carry them.
+// Package testing is what the tests of the library's database packages share, the API key packages'
+// and the OAuth authorization server's: a database of a test package's own, on the server
+// TEST_DATABASE_URL names, with the library's tables in it; accounts in it; and session tokens for
+// them, signed by a key the tests hold, as a browser or a minted token would carry them.
 //
 // It is the one package of the library that reaches a database through a driver, and nothing but
 // tests imports it, so a service importing the library is not made to build pgx unless it already
@@ -27,6 +28,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/database/types/authentication"
 	"github.com/altshiftab/authentication_go/pkg/database/types/customer"
 	"github.com/altshiftab/authentication_go/pkg/database/types/dbsc_challenge"
+	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_authorization"
 	"github.com/altshiftab/authentication_go/pkg/database/types/oauth_flow"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authentication_method"
 	"github.com/altshiftab/authentication_go/pkg/session/types/authorizer_request_parser"
@@ -81,8 +83,8 @@ type (
 )
 
 // Schema is the SQL the library's tables generate: an account with its customer, its sign-ins with
-// the device challenges they are refreshed by, the keys it registers with what they mint, and the
-// sign-ins begun at an identity provider.
+// the device challenges they are refreshed by, the keys it registers with what they mint, the
+// sign-ins begun at an identity provider, and what the OAuth authorization server hands out.
 func Schema() (string, error) {
 	tables, err := postgres.Convert(
 		customer.Customer{},
@@ -93,6 +95,10 @@ func Schema() (string, error) {
 		api_key_assertion.ApiKeyAssertion{},
 		api_key_authentication.ApiKeyAuthentication{},
 		oauthFlow{},
+		oauth_authorization.OauthAuthorizationRequest{},
+		oauth_authorization.OauthAuthorizationCode{},
+		oauth_authorization.OauthGrant{},
+		oauth_authorization.OauthRefreshToken{},
 	)
 	if err != nil {
 		return "", fmt.Errorf("postgres convert: %w", err)
@@ -112,8 +118,9 @@ func Schema() (string, error) {
 type Database struct {
 	*sql.DB
 
-	name  string
-	admin *sql.DB
+	name   string
+	config *pgx.ConnConfig
+	admin  *sql.DB
 }
 
 /*
@@ -167,6 +174,7 @@ func NewDatabase(ctx context.Context, databaseUrl string, name string) (*Databas
 
 	testConfig := adminConfig.Copy()
 	testConfig.Database = databaseName
+	database.config = testConfig
 	database.DB = stdlib.OpenDB(*testConfig)
 	if database.DB == nil {
 		wrappedErr := altshiftErrors.NewWithTrace(nil_error.New("sql db (test)"))
@@ -266,6 +274,23 @@ func Db(t testing.TB) *sql.DB {
 	}
 
 	return packageDatabase.DB
+}
+
+// Pool is a connection pool of its own to the database Main made for the test package, of at most
+// maxOpenConns connections, as a service bounds its pool; it is closed when the test ends. It skips
+// the test where Main made no database.
+func Pool(t testing.TB, maxOpenConns int) *sql.DB {
+	t.Helper()
+
+	if packageDatabase == nil || packageDatabase.config == nil {
+		t.Skipf("%s is not set", DatabaseUrlVariable)
+	}
+
+	pool := stdlib.OpenDB(*packageDatabase.config.Copy())
+	pool.SetMaxOpenConns(maxOpenConns)
+	t.Cleanup(func() { _ = pool.Close() })
+
+	return pool
 }
 
 // Account is an account as the tests make one.
