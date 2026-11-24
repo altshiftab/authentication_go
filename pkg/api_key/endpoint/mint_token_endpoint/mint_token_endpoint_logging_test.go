@@ -28,7 +28,7 @@ const mintMessage = "An API key minted a token."
 //
 //nolint:paralleltest // Swaps the global slog default; running it in parallel would race.
 func TestMintLogging(t *testing.T) {
-	const emailAddress = "logging-mint@example.com"
+	emailAddress := apiKeyTesting.Unique("logging-mint@example.com")
 
 	db := apiKeyTesting.Db(t)
 	account := newAccount(t, db, emailAddress, "admin")

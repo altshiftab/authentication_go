@@ -221,7 +221,7 @@ func TestInsertAccount(t *testing.T) {
 	db := Db(t)
 	ctx := t.Context()
 
-	customerId, err := InsertCustomer(ctx, db, "Example")
+	customerId, err := InsertCustomer(ctx, db, Unique("Example"))
 	if err != nil {
 		t.Fatalf("insert customer: %v", err)
 	}
@@ -232,8 +232,8 @@ func TestInsertAccount(t *testing.T) {
 		customerId   string
 		roles        []string
 	}{
-		{name: "with a customer and roles", emailAddress: "customer@example.com", customerId: customerId, roles: []string{"admin", "user"}},
-		{name: "with neither", emailAddress: "alone@example.com"},
+		{name: "with a customer and roles", emailAddress: Unique("customer@example.com"), customerId: customerId, roles: []string{"admin", "user"}},
+		{name: "with neither", emailAddress: Unique("alone@example.com")},
 	}
 
 	for _, testCase := range testCases {
@@ -294,10 +294,11 @@ func TestInsertAccountTwice(t *testing.T) {
 	db := Db(t)
 	ctx := t.Context()
 
-	if _, err := InsertAccount(ctx, db, "twice@example.com", ""); err != nil {
+	emailAddress := Unique("twice@example.com")
+	if _, err := InsertAccount(ctx, db, emailAddress, ""); err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
-	if _, err := InsertAccount(ctx, db, "Twice@Example.com", ""); err == nil {
+	if _, err := InsertAccount(ctx, db, strings.ToUpper(emailAddress), ""); err == nil {
 		t.Error("Two accounts were made with one address.")
 	}
 }
@@ -354,5 +355,18 @@ func TestPool(t *testing.T) {
 	var grants int
 	if err := pool.QueryRowContext(t.Context(), `SELECT count(*) FROM oauth_grant;`).Scan(&grants); err != nil {
 		t.Fatalf("count grants: %v", err)
+	}
+}
+
+// Unique keeps the value it is given, and makes it unlike any other call's.
+func TestUnique(t *testing.T) {
+	t.Parallel()
+
+	first, second := Unique("a@example.test"), Unique("a@example.test")
+	if first == second {
+		t.Errorf("two calls gave %q", first)
+	}
+	if !strings.HasSuffix(first, ".a@example.test") {
+		t.Errorf("got %q, want it to end in the value", first)
 	}
 }

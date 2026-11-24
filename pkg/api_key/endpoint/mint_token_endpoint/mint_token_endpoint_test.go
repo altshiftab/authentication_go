@@ -251,7 +251,7 @@ func TestEndpoint(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 
-	account := newAccount(t, db, "mint@example.com", "admin", "user")
+	account := newAccount(t, db, apiKeyTesting.Unique("mint@example.com"), "admin", "user")
 	c := newAssertingClient(t)
 	registerKey(t, db, account.Id, c.key, "a build runner", nil)
 
@@ -477,7 +477,7 @@ func TestClient(t *testing.T) {
 	t.Parallel()
 
 	db := apiKeyTesting.Db(t)
-	account := newAccount(t, db, "client@example.com", "user")
+	account := newAccount(t, db, apiKeyTesting.Unique("client@example.com"), "user")
 
 	mux := &muxPkg.Mux{}
 	// Unstarted, so that the address the endpoint is told it is at is known before it is served.

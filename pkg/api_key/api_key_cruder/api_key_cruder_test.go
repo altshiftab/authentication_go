@@ -202,8 +202,8 @@ func TestCreate(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-create@example.com")
-	otherAccountId := createAccount(t, db, "api-key-create-other@example.com")
+	accountId := createAccount(t, db, apiKeyTesting.Unique("api-key-create@example.com"))
+	otherAccountId := createAccount(t, db, apiKeyTesting.Unique("api-key-create-other@example.com"))
 
 	key := newPublicKey(t)
 	expiresAt := time.Now().Add(24 * time.Hour).Truncate(time.Second)
@@ -257,8 +257,8 @@ func TestReadBulkForAccount(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-list@example.com")
-	otherAccountId := createAccount(t, db, "api-key-list-other@example.com")
+	accountId := createAccount(t, db, apiKeyTesting.Unique("api-key-list@example.com"))
+	otherAccountId := createAccount(t, db, apiKeyTesting.Unique("api-key-list-other@example.com"))
 
 	first := createKey(t, db, accountId, "first")
 	second := createKey(t, db, accountId, "second")
@@ -284,7 +284,7 @@ func TestReadBulkForAccount(t *testing.T) {
 	}
 
 	// An account with none has none, rather than an error.
-	emptyAccountId := createAccount(t, db, "api-key-list-empty@example.com")
+	emptyAccountId := createAccount(t, db, apiKeyTesting.Unique("api-key-list-empty@example.com"))
 	keys, err = cruder.ReadBulkForAccount(t.Context(), emptyAccountId)
 	if err != nil {
 		t.Fatalf("read bulk for account: %v", err)
@@ -306,7 +306,8 @@ func TestRecordMint(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-mint@example.com")
+	emailAddress := apiKeyTesting.Unique("api-key-mint@example.com")
+	accountId := createAccount(t, db, emailAddress)
 	key := createKey(t, db, accountId, "a build runner")
 
 	metadata := &authenticationPkg.ClientMetadata{IpAddress: "81.2.3.4", UserAgent: "curl/8.9.1"}
@@ -324,7 +325,7 @@ func TestRecordMint(t *testing.T) {
 	if authentication.Account.Id != accountId {
 		t.Errorf("account: got %q, want %q", authentication.Account.Id, accountId)
 	}
-	if authentication.Account.EmailAddress != "api-key-mint@example.com" {
+	if authentication.Account.EmailAddress != emailAddress {
 		t.Errorf("email address: got %q", authentication.Account.EmailAddress)
 	}
 	if !slices.Equal(authentication.Account.Roles, []string{testRole}) {
@@ -401,7 +402,8 @@ func TestRecordMintAccount(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 
-	customerId, err := apiKeyTesting.InsertCustomer(t.Context(), db, "Mint Customer")
+	customerName := apiKeyTesting.Unique("Mint Customer")
+	customerId, err := apiKeyTesting.InsertCustomer(t.Context(), db, customerName)
 	if err != nil {
 		t.Fatalf("insert customer: %v", err)
 	}
@@ -412,8 +414,8 @@ func TestRecordMintAccount(t *testing.T) {
 		customerId   string
 		roles        []string
 	}{
-		{name: "with a customer", emailAddress: "api-key-tenant@example.com", customerId: customerId, roles: []string{"admin", testRole}},
-		{name: "with no customer and no roles", emailAddress: "api-key-no-tenant@example.com"},
+		{name: "with a customer", emailAddress: apiKeyTesting.Unique("api-key-tenant@example.com"), customerId: customerId, roles: []string{"admin", testRole}},
+		{name: "with no customer and no roles", emailAddress: apiKeyTesting.Unique("api-key-no-tenant@example.com")},
 	}
 
 	for _, testCase := range testCases {
@@ -445,7 +447,7 @@ func TestRecordMintAccount(t *testing.T) {
 				}
 				return
 			}
-			if minted.Customer == nil || minted.Customer.Id != testCase.customerId || minted.Customer.Name != "Mint Customer" {
+			if minted.Customer == nil || minted.Customer.Id != testCase.customerId || minted.Customer.Name != customerName {
 				t.Errorf("customer: got %+v, want %q", minted.Customer, testCase.customerId)
 			}
 		})
@@ -467,7 +469,7 @@ func TestRecordMintRemembersTheAssertionForAsLongAsItCanBePresented(t *testing.T
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-retention@example.com")
+	accountId := createAccount(t, db, apiKeyTesting.Unique("api-key-retention@example.com"))
 	key := createKey(t, db, accountId, "a key that mints")
 
 	if _, err := cruder.RecordMint(t.Context(), key, "assertion-1", nil); err != nil {
@@ -512,8 +514,8 @@ func TestRevokeForAccount(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-revoke@example.com")
-	otherAccountId := createAccount(t, db, "api-key-revoke-other@example.com")
+	accountId := createAccount(t, db, apiKeyTesting.Unique("api-key-revoke@example.com"))
+	otherAccountId := createAccount(t, db, apiKeyTesting.Unique("api-key-revoke-other@example.com"))
 
 	key := createKey(t, db, accountId, "a key to revoke")
 	othersKey := createKey(t, db, otherAccountId, "somebody else's")
@@ -580,7 +582,7 @@ func TestRecordMintAfterARevokeItDidNotSee(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-revoke-race@example.com")
+	accountId := createAccount(t, db, apiKeyTesting.Unique("api-key-revoke-race@example.com"))
 	key := createKey(t, db, accountId, "revoked under the mint")
 
 	if err := cruder.RevokeForAccount(t.Context(), accountId, key.Id); err != nil {
@@ -645,7 +647,7 @@ func TestRecordMintAfterTheSignInExpired(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 	cruder := &Cruder{Database: db}
-	accountId := createAccount(t, db, "api-key-expired-sign-in@example.com")
+	accountId := createAccount(t, db, apiKeyTesting.Unique("api-key-expired-sign-in@example.com"))
 	key := createKey(t, db, accountId, "a key that comes back")
 
 	first, err := cruder.RecordMint(t.Context(), key, "assertion-1", nil)

@@ -123,8 +123,8 @@ func TestEndpoint(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 
-	account := newAccount(t, db, "create-api-key@example.com")
-	otherAccount := newAccount(t, db, "create-api-key-other@example.com")
+	account := newAccount(t, db, apiKeyTesting.Unique("create-api-key@example.com"))
+	otherAccount := newAccount(t, db, apiKeyTesting.Unique("create-api-key-other@example.com"))
 
 	testEndpoint := New()
 	if err := testEndpoint.Initialize(apiKeyTesting.Authorizer, db); err != nil {

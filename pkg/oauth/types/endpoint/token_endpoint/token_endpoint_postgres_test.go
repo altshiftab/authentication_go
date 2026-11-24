@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -20,11 +19,6 @@ func TestMain(m *testing.M) {
 	os.Exit(apiKeyTesting.Main(m, "token_endpoint"))
 }
 
-// newEmailAddress is an address no other run in the package's database has taken.
-func newEmailAddress() string {
-	return strings.ToLower(rand.Text()) + "@example.test"
-}
-
 /*
  * Refreshes against Postgres through pools as small as a service may bound its own, under a
  * deadline. A refresh that wanted a second connection while it held the first would wait for one
@@ -34,11 +28,11 @@ func TestEndpoint_RefreshPool(t *testing.T) {
 	t.Parallel()
 
 	db := apiKeyTesting.Db(t)
-	active, err := apiKeyTesting.InsertAccount(t.Context(), db, newEmailAddress(), "")
+	active, err := apiKeyTesting.InsertAccount(t.Context(), db, apiKeyTesting.Unique("account@example.test"), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
-	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, newEmailAddress(), "")
+	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, apiKeyTesting.Unique("account@example.test"), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}

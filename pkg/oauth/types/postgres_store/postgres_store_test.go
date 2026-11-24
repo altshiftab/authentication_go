@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,11 +18,6 @@ func TestMain(m *testing.M) {
 	os.Exit(apiKeyTesting.Main(m, "postgres_store"))
 }
 
-// newEmailAddress is an address no other run in the package's database has taken.
-func newEmailAddress() string {
-	return strings.ToLower(rand.Text()) + "@example.test"
-}
-
 // A rotation that waited for its rows sees an account locked while it waited, as it reads the account
 // in a statement of its own once it has them; read in the locking statement, the account would be as
 // it was before the wait.
@@ -34,7 +28,7 @@ func TestStore_RotateSeesAccountLockedDuringWait(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
-	account, err := apiKeyTesting.InsertAccount(ctx, db, newEmailAddress(), "")
+	account, err := apiKeyTesting.InsertAccount(ctx, db, apiKeyTesting.Unique("account@example.test"), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
@@ -102,11 +96,11 @@ func TestStore_Contract(t *testing.T) {
 	t.Parallel()
 
 	db := apiKeyTesting.Db(t)
-	active, err := apiKeyTesting.InsertAccount(t.Context(), db, newEmailAddress(), "")
+	active, err := apiKeyTesting.InsertAccount(t.Context(), db, apiKeyTesting.Unique("account@example.test"), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
-	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, newEmailAddress(), "")
+	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, apiKeyTesting.Unique("account@example.test"), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}

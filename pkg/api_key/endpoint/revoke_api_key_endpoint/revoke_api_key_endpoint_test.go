@@ -113,8 +113,8 @@ func TestEndpoint(t *testing.T) {
 
 	db := apiKeyTesting.Db(t)
 
-	account := newAccount(t, db, "revoke-api-key@example.com")
-	otherAccount := newAccount(t, db, "revoke-api-key-other@example.com")
+	account := newAccount(t, db, apiKeyTesting.Unique("revoke-api-key@example.com"))
+	otherAccount := newAccount(t, db, apiKeyTesting.Unique("revoke-api-key-other@example.com"))
 
 	keyId := createKey(t, db, account.Id, "a key to revoke")
 	othersKeyId := createKey(t, db, otherAccount.Id, "somebody else's")

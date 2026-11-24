@@ -293,6 +293,12 @@ func Pool(t testing.TB, maxOpenConns int) *sql.DB {
 	return pool
 }
 
+// Unique is value with a random prefix, for a column that takes each value once: a test run twice
+// against the package's one database, as `go test -count=2` runs it, would otherwise meet its own rows.
+func Unique(value string) string {
+	return strings.ToLower(rand.Text()) + "." + value
+}
+
 // Account is an account as the tests make one.
 type Account struct {
 	Id           string

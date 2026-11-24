@@ -1,6 +1,7 @@
 package validate_endpoint
 
 import (
+	"crypto/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -45,7 +46,8 @@ func mintToken(t *testing.T, payload map[string]any) string {
 func defaultPayload(emailAddress, nonce string) map[string]any {
 	now := time.Now()
 	return map[string]any{
-		"jti": nonce,
+		// Unique to the run: a link is used once, in a database the package keeps across runs.
+		"jti": nonce + "-" + rand.Text(),
 		"sub": emailAddress,
 		"iat": now.Unix(),
 		"exp": now.Add(15 * time.Minute).Unix(),
