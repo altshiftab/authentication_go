@@ -212,7 +212,7 @@ func (s *Store) RotateRefreshToken(
 	// the grant goes for both.
 	if usedAt.Valid {
 		if _, err := tx.ExecContext(ctx, revokeGrantQuery, grant.Id); err != nil {
-			return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql exec (revoke grant): %w", err))
+			return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql exec (revoke grant): %w", err), grant.Id)
 		}
 		if err := tx.Commit(); err != nil {
 			return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql commit: %w", err))
@@ -232,7 +232,7 @@ func (s *Store) RotateRefreshToken(
 		return nil, oauth.ErrAccountInactive
 	}
 	if err != nil {
-		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql query row (select account): %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql query row (select account): %w", err), grant.AccountId)
 	}
 	if locked {
 		return nil, oauth.ErrAccountInactive
@@ -251,7 +251,7 @@ func (s *Store) RotateRefreshToken(
 		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql exec (spend refresh token): %w", err))
 	}
 	if _, err := tx.ExecContext(ctx, insertRefreshTokenQuery, newRefreshTokenHash, grant.Id, newExpiresAt); err != nil {
-		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql exec (insert refresh token): %w", err))
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql exec (insert refresh token): %w", err), grant.Id)
 	}
 
 	if err := tx.Commit(); err != nil {

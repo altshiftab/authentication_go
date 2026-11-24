@@ -195,8 +195,8 @@ func (s *rotationWatcher) AccountActive(ctx context.Context, accountId string) (
 	return s.Store.AccountActive(ctx, accountId)
 }
 
-// A refresh renews an active account's grant and refuses a locked or unknown account's, and asks the
-// store nothing while it rotates the refresh token.
+// A refresh renews an active account's grant and refuses a locked or unknown account's, and does not
+// ask the store about the account while it rotates the refresh token.
 func TestEndpoint_RefreshAccount(t *testing.T) {
 	t.Parallel()
 

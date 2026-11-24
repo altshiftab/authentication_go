@@ -1,7 +1,11 @@
 package postgres_store
 
 import (
+	"context"
+	"crypto/rand"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +19,81 @@ func TestMain(m *testing.M) {
 	os.Exit(apiKeyTesting.Main(m, "postgres_store"))
 }
 
+// newEmailAddress is an address no other run in the package's database has taken.
+func newEmailAddress() string {
+	return strings.ToLower(rand.Text()) + "@example.test"
+}
+
+// A rotation that waited for its rows sees an account locked while it waited, as it reads the account
+// in a statement of its own once it has them; read in the locking statement, the account would be as
+// it was before the wait.
+func TestStore_RotateSeesAccountLockedDuringWait(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	account, err := apiKeyTesting.InsertAccount(ctx, db, newEmailAddress(), "")
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	store, err := New(db)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	now := time.Now().Truncate(time.Second)
+	token := oauth.HashSecret(rand.Text())
+	grantId, err := store.InsertGrant(ctx, &oauth.Grant{
+		AccountId: account.Id, ClientId: "a-client", Resource: "https://resource.example/mcp", Scope: "vocab", CreatedAt: now,
+	}, token, now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("insert grant: %v", err)
+	}
+
+	// Another transaction holds the grant's row, as one presenting the same token at once would.
+	holder, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin tx: %v", err)
+	}
+	defer func() { _ = holder.Rollback() }()
+	var holderPid int
+	if err := holder.QueryRowContext(ctx, `SELECT pg_backend_pid();`).Scan(&holderPid); err != nil {
+		t.Fatalf("holder pid: %v", err)
+	}
+	if _, err := holder.ExecContext(ctx, `SELECT 1 FROM oauth_grant WHERE id = $1 FOR UPDATE;`, grantId); err != nil {
+		t.Fatalf("hold grant: %v", err)
+	}
+
+	rotated := make(chan error, 1)
+	go func() {
+		_, err := store.RotateRefreshToken(ctx, token, oauth.HashSecret(rand.Text()), now.Add(time.Hour), now, nil)
+		rotated <- err
+	}()
+
+	// The account is locked only once the rotation waits for the holder.
+	for blocked := 0; blocked == 0; {
+		if err := db.QueryRowContext(
+			ctx,
+			`SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid));`,
+			holderPid,
+		).Scan(&blocked); err != nil {
+			t.Fatalf("count blocked: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE account SET locked = true WHERE id = $1;`, account.Id); err != nil {
+		t.Fatalf("lock account: %v", err)
+	}
+	if err := holder.Rollback(); err != nil {
+		t.Fatalf("rollback holder: %v", err)
+	}
+
+	if err := <-rotated; !errors.Is(err, oauth.ErrAccountInactive) {
+		t.Errorf("rotate: %v, want ErrAccountInactive", err)
+	}
+}
+
 // The store against Postgres, where TEST_DATABASE_URL names a server, through what the endpoints
 // rely on.
 //
@@ -23,11 +102,11 @@ func TestStore_Contract(t *testing.T) {
 	t.Parallel()
 
 	db := apiKeyTesting.Db(t)
-	active, err := apiKeyTesting.InsertAccount(t.Context(), db, "active@example.com", "")
+	active, err := apiKeyTesting.InsertAccount(t.Context(), db, newEmailAddress(), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}
-	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, "locked@example.com", "")
+	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, newEmailAddress(), "")
 	if err != nil {
 		t.Fatalf("insert account: %v", err)
 	}

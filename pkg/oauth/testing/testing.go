@@ -3,6 +3,7 @@
 package testing
 
 import (
+	"crypto/rand"
 	"errors"
 	"sync"
 	"testing"
@@ -29,6 +30,10 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 	t.Helper()
 
 	now := time.Now().Truncate(time.Second)
+
+	// The codes and tokens of this run, apart from any an earlier run left in the same store.
+	run := rand.Text()
+	hash := func(secret string) []byte { return oauth.HashSecret(run + secret) }
 
 	// One group, which returns once every case in it has: the cases are run in parallel, and run
 	// after their parent returns, and the store is for the caller to close once this one does.
@@ -62,7 +67,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("an authorization code is redeemed once", func(t *testing.T) {
 			t.Parallel()
 
-			codeHash := oauth.HashSecret("a-code")
+			codeHash := hash("a-code")
 			if err := store.InsertAuthorizationCode(t.Context(), codeHash, &oauth.AuthorizationCode{
 				AccountId: accountId, ClientId: contractClientId, RedirectUri: "https://client.example/cb", CodeChallenge: contractCodeChallenge,
 				Resource: contractResource, Scope: contractScope, ExpiresAt: now.Add(time.Minute),
@@ -77,7 +82,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 			if _, err := store.PopAuthorizationCode(t.Context(), codeHash); !errors.Is(err, oauth.ErrNotFound) {
 				t.Errorf("redeemed again: %v, want ErrNotFound", err)
 			}
-			if _, err := store.PopAuthorizationCode(t.Context(), oauth.HashSecret("never-issued")); !errors.Is(err, oauth.ErrNotFound) {
+			if _, err := store.PopAuthorizationCode(t.Context(), hash("never-issued")); !errors.Is(err, oauth.ErrNotFound) {
 				t.Errorf("a code never issued: %v, want ErrNotFound", err)
 			}
 		})
@@ -96,7 +101,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("a refresh token is spent once, its successor in its place", func(t *testing.T) {
 			t.Parallel()
 
-			first, second, third := oauth.HashSecret("rt-1"), oauth.HashSecret("rt-2"), oauth.HashSecret("rt-3")
+			first, second, third := hash("rt-1"), hash("rt-2"), hash("rt-3")
 			grantId := newGrant(t, first, now.Add(time.Hour))
 
 			grant, err := store.RotateRefreshToken(t.Context(), first, second, now.Add(time.Hour), now, nil)
@@ -111,7 +116,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("a spent refresh token coming back revokes the grant", func(t *testing.T) {
 			t.Parallel()
 
-			first, second, third, fourth := oauth.HashSecret("rr-1"), oauth.HashSecret("rr-2"), oauth.HashSecret("rr-3"), oauth.HashSecret("rr-4")
+			first, second, third, fourth := hash("rr-1"), hash("rr-2"), hash("rr-3"), hash("rr-4")
 			newGrant(t, first, now.Add(time.Hour))
 
 			if _, err := store.RotateRefreshToken(t.Context(), first, second, now.Add(time.Hour), now, nil); err != nil {
@@ -129,7 +134,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("a refused check leaves the refresh token unspent", func(t *testing.T) {
 			t.Parallel()
 
-			token, successor := oauth.HashSecret("rc-1"), oauth.HashSecret("rc-2")
+			token, successor := hash("rc-1"), hash("rc-2")
 			grantId := newGrant(t, token, now.Add(time.Hour))
 
 			var checked *oauth.Grant
@@ -144,7 +149,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 				t.Errorf("checked %+v", checked)
 			}
 			// The successor was never recorded, and the token is as it was.
-			if _, err := store.RotateRefreshToken(t.Context(), successor, oauth.HashSecret("rc-3"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
+			if _, err := store.RotateRefreshToken(t.Context(), successor, hash("rc-3"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
 				t.Errorf("the successor of a refused rotation: %v, want ErrNotFound", err)
 			}
 			if _, err := store.RotateRefreshToken(t.Context(), token, successor, now.Add(time.Hour), now, nil); err != nil {
@@ -155,10 +160,10 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("a refresh token presented twice at once renews once", func(t *testing.T) {
 			t.Parallel()
 
-			token := oauth.HashSecret("rx-1")
+			token := hash("rx-1")
 			newGrant(t, token, now.Add(time.Hour))
 
-			successors := [][]byte{oauth.HashSecret("rx-2"), oauth.HashSecret("rx-3")}
+			successors := [][]byte{hash("rx-2"), hash("rx-3")}
 			errs := make([]error, len(successors))
 			var group sync.WaitGroup
 			for i, successor := range successors {
@@ -184,7 +189,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 			}
 			// The grant went with the second, and its one successor with it.
 			for _, successor := range successors {
-				if _, err := store.RotateRefreshToken(t.Context(), successor, oauth.HashSecret("rx-4"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
+				if _, err := store.RotateRefreshToken(t.Context(), successor, hash("rx-4"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
 					t.Errorf("a successor after the grant was revoked: %v, want ErrNotFound", err)
 				}
 			}
@@ -193,15 +198,15 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("a revoked refresh token renews nothing", func(t *testing.T) {
 			t.Parallel()
 
-			token := oauth.HashSecret("rv-1")
+			token := hash("rv-1")
 			newGrant(t, token, now.Add(time.Hour))
 			if err := store.RevokeRefreshToken(t.Context(), token); err != nil {
 				t.Fatalf("revoke: %v", err)
 			}
-			if _, err := store.RotateRefreshToken(t.Context(), token, oauth.HashSecret("rv-2"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
+			if _, err := store.RotateRefreshToken(t.Context(), token, hash("rv-2"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
 				t.Errorf("a revoked token: %v, want ErrNotFound", err)
 			}
-			if err := store.RevokeRefreshToken(t.Context(), oauth.HashSecret("rv-never")); err != nil {
+			if err := store.RevokeRefreshToken(t.Context(), hash("rv-never")); err != nil {
 				t.Errorf("revoke a token never issued: %v, want nothing", err)
 			}
 		})
@@ -219,12 +224,12 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("an expired or unknown refresh token renews nothing", func(t *testing.T) {
 			t.Parallel()
 
-			expired := oauth.HashSecret("re-1")
+			expired := hash("re-1")
 			newGrant(t, expired, now.Add(-time.Minute))
-			if _, err := store.RotateRefreshToken(t.Context(), expired, oauth.HashSecret("re-2"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
+			if _, err := store.RotateRefreshToken(t.Context(), expired, hash("re-2"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
 				t.Errorf("an expired token: %v, want ErrNotFound", err)
 			}
-			if _, err := store.RotateRefreshToken(t.Context(), oauth.HashSecret("re-never"), oauth.HashSecret("re-3"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
+			if _, err := store.RotateRefreshToken(t.Context(), hash("re-never"), hash("re-3"), now.Add(time.Hour), now, nil); !errors.Is(err, oauth.ErrNotFound) {
 				t.Errorf("a token never issued: %v, want ErrNotFound", err)
 			}
 		})
@@ -232,7 +237,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 		t.Run("a locked account's refresh token renews nothing and is left unspent", func(t *testing.T) {
 			t.Parallel()
 
-			token := oauth.HashSecret("rl-1")
+			token := hash("rl-1")
 			if _, err := store.InsertGrant(t.Context(), &oauth.Grant{
 				AccountId: lockedAccountId, ClientId: contractClientId, Resource: contractResource, Scope: contractScope, CreatedAt: now,
 			}, token, now.Add(time.Hour)); err != nil {
@@ -246,7 +251,7 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAcco
 			}
 			// Twice: a token the first spent would be reused the second time.
 			for range 2 {
-				if _, err := store.RotateRefreshToken(t.Context(), token, oauth.HashSecret("rl-2"), now.Add(time.Hour), now, check); !errors.Is(err, oauth.ErrAccountInactive) {
+				if _, err := store.RotateRefreshToken(t.Context(), token, hash("rl-2"), now.Add(time.Hour), now, check); !errors.Is(err, oauth.ErrAccountInactive) {
 					t.Fatalf("rotate: %v, want ErrAccountInactive", err)
 				}
 			}
