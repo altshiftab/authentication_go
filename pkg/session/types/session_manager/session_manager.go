@@ -73,9 +73,11 @@ type Manager struct {
 //
 // The address is the one the mux resolved as the request arrived, from the headers the service's
 // options tell it to trust -- X-Client-Ip-Address as a load balancer that sets it sent it
-// (WithTrustClientHeaders), or X-Forwarded-For read from the right, past the trusted proxies, where
-// the proxy directly in front appends to it, as Google's front end in front of Cloud Run does
-// (WithTrustForwardedFor, WithTrustedProxies) -- and otherwise the connection's peer. No header is
+// (WithTrustClientHeaders), or X-Forwarded-For read from the right, the entry the hops count and
+// past the trusted proxies, where the proxy directly in front appends to it, as Google's front end
+// in front of Cloud Run does (WithTrustForwardedFor, WithForwardedForHops, WithTrustedProxies) --
+// and otherwise the connection's peer. Behind Firebase Hosting with the hops at 2 and no trusted
+// proxies, a request sent to the run.app address directly records whatever address it names. No header is
 // read for it here: what the request says of its own client is the client's to write unless
 // something in front replaced it, and the service's options are where it says what is in front of
 // it.

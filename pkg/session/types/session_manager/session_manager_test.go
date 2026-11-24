@@ -1483,7 +1483,9 @@ var clientHeaders = map[string][]string{
 }
 
 // firebaseEdges is the range of Firebase Hosting's edges, as Google's front end records them as the
-// last X-Forwarded-For entry of a request Firebase forwarded.
+// last X-Forwarded-For entry of a request Firebase forwarded. vvvp_login trusts no such range, but
+// reads the client two entries from the right; a service that keeps the range current can trust it
+// instead, with the client read past it.
 var firebaseEdges = []netip.Prefix{netip.MustParsePrefix("66.249.93.0/24")}
 
 // withHeaders merges header lines, a later map's lines for a name replacing an earlier one's.
@@ -1517,6 +1519,7 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 	testCases := []struct {
 		name               string
 		trustForwardedFor  bool
+		forwardedForHops   int
 		trustClientHeaders bool
 		trustedProxies     []netip.Prefix
 		remoteAddr         string
@@ -1588,11 +1591,11 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 		},
 		{
 			// vvvp_login: Firebase Hosting replaces X-Forwarded-For with the client's address, and
-			// Google's front end appends the edge's; nothing sets X-Client-*, so those are the
-			// client's, and not trusted.
+			// Google's front end appends the edge's, so the client is two entries from the right;
+			// nothing sets X-Client-*, so those are the client's, and not trusted.
 			name:              "vvvp_login through Firebase Hosting, forged client headers",
 			trustForwardedFor: true,
-			trustedProxies:    firebaseEdges,
+			forwardedForHops:  2,
 			remoteAddr:        "169.254.1.1:443",
 			headers: withHeaders(clientHeaders, map[string][]string{
 				"X-Forwarded-For": {"198.51.100.7,66.249.93.77"},
@@ -1601,9 +1604,36 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 			want: &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.7", UserAgent: "test-agent"},
 		},
 		{
-			// The run.app address reached directly, the caller naming a client of its own: Google's
-			// front end appends the caller's address.
+			// The accepted risk: the run.app address reached directly, the caller naming a client of
+			// its own, which Google's front end appends the caller's address after, as it appends
+			// the edge's after Firebase's entry. Recorded as named, with no location.
 			name:              "vvvp_login at run.app directly, a forged X-Forwarded-For",
+			trustForwardedFor: true,
+			forwardedForHops:  2,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"192.0.2.21,203.0.113.9"}}),
+			want:              &authenticationPkg.ClientMetadata{IpAddress: "192.0.2.21"},
+		},
+		{
+			// The run.app address reached directly with no X-Forwarded-For of its own: the front
+			// end's one entry is short of two, so the peer is recorded rather than the caller.
+			name:              "vvvp_login at run.app directly, no X-Forwarded-For of its own",
+			trustForwardedFor: true,
+			forwardedForHops:  2,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"203.0.113.9"}}),
+			want:              &authenticationPkg.ClientMetadata{IpAddress: "169.254.1.1"},
+		},
+		{
+			name:              "through Firebase Hosting, the edges trusted",
+			trustForwardedFor: true,
+			trustedProxies:    firebaseEdges,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"198.51.100.7,66.249.93.77"}}),
+			want:              &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.7"},
+		},
+		{
+			name:              "at run.app directly, the edges trusted, a forged X-Forwarded-For",
 			trustForwardedFor: true,
 			trustedProxies:    firebaseEdges,
 			remoteAddr:        "169.254.1.1:443",
@@ -1611,7 +1641,7 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 			want:              &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.9"},
 		},
 		{
-			name:              "vvvp_login at run.app directly, a forged chain through an edge",
+			name:              "at run.app directly, the edges trusted, a forged chain through an edge",
 			trustForwardedFor: true,
 			trustedProxies:    firebaseEdges,
 			remoteAddr:        "169.254.1.1:443",
@@ -1653,6 +1683,7 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 				},
 			})
 			mux.TrustForwardedFor = testCase.trustForwardedFor
+			mux.ForwardedForHops = testCase.forwardedForHops
 			mux.TrustClientHeaders = testCase.trustClientHeaders
 			mux.TrustedProxies = testCase.trustedProxies
 
