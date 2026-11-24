@@ -224,8 +224,22 @@ func (s *Store) RotateRefreshToken(
 		return nil, oauth.ErrNotFound
 	}
 
+	// On the transaction's own connection, as a bounded pool may never free a second one, and as a
+	// query of its own, which sees a lock of the account made while the rows were waited for.
+	var locked bool
+	err = tx.QueryRowContext(ctx, selectAccountLockedQuery, grant.AccountId).Scan(&locked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, oauth.ErrAccountInactive
+	}
+	if err != nil {
+		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("sql query row (select account): %w", err))
+	}
+	if locked {
+		return nil, oauth.ErrAccountInactive
+	}
+
 	// Asked while the rows are locked, and before anything is written: a refusal rolls back and
-	// leaves the token unspent. The check asks about the account on a connection of its own.
+	// leaves the token unspent.
 	if check != nil {
 		checked := grant
 		if err := check(&checked); err != nil {

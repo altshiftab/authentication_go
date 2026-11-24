@@ -149,8 +149,8 @@ func (s *Store) RotateRefreshToken(
 		return nil, err
 	}
 
-	// Asked without the lock, which the check may want for asking about the account; the token
-	// is looked at again once it is held, in case it was spent meanwhile.
+	// Asked without the lock; the token is looked at again once it is held, in case it was spent
+	// meanwhile.
 	if check != nil {
 		if err := check(g); err != nil {
 			return nil, err
@@ -203,6 +203,9 @@ func (s *Store) find(refreshTokenHash []byte, now time.Time) (*refreshToken, *gr
 	if g.revoked || !now.Before(token.expiresAt) {
 		return nil, nil, oauth.ErrNotFound
 	}
+	if !s.active(g.AccountId) {
+		return nil, nil, oauth.ErrAccountInactive
+	}
 
 	return token, g, nil
 }
@@ -224,5 +227,10 @@ func (s *Store) RevokeRefreshToken(_ context.Context, refreshTokenHash []byte) e
 func (s *Store) AccountActive(_ context.Context, accountId string) (bool, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	return s.Accounts[accountId] && !s.lockedAccounts[accountId], nil
+	return s.active(accountId), nil
+}
+
+// active says whether the account is known and not locked. The lock is held.
+func (s *Store) active(accountId string) bool {
+	return s.Accounts[accountId] && !s.lockedAccounts[accountId]
 }

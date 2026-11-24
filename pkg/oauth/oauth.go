@@ -108,10 +108,14 @@ var (
 	// ErrRefreshTokenReused is a refresh token presented after it was spent. Its grant is revoked:
 	// only one of the two presenting it can be the client.
 	ErrRefreshTokenReused = errors.New("refresh token reused")
+
+	// ErrAccountInactive is a refresh token of an account that is locked or no longer exists.
+	ErrAccountInactive = errors.New("account inactive")
 )
 
 // GrantCheck is what a grant must pass to be renewed. It is asked while the refresh token is held,
-// and may ask the store about the account, so a store asks it without holding a lock of its own.
+// and a database store holds a connection then, so a check must not call the store: that would take
+// a second connection, which a bounded pool may never have free.
 type GrantCheck func(grant *Grant) error
 
 // Store keeps what the authorization server hands out. Codes and refresh tokens are kept by their
@@ -130,9 +134,10 @@ type Store interface {
 	InsertGrant(ctx context.Context, grant *Grant, refreshTokenHash []byte, refreshTokenExpiresAt time.Time) (string, error)
 	// RotateRefreshToken spends a refresh token and records its successor in one step, returning
 	// the grant it renews. A token spent before revokes the grant and is ErrRefreshTokenReused; one
-	// unknown, expired, or of a revoked grant is ErrNotFound. check is asked of the grant before the
-	// token is spent, and an error from it is returned with the token left as it was: a refusal must
-	// not cost the client the only token it has.
+	// unknown, expired, or of a revoked grant is ErrNotFound; one of an account that is locked or no
+	// longer exists is ErrAccountInactive. check is then asked of the grant, before the token is
+	// spent. A refusal, the store's or the check's, leaves the token as it was: it must not cost the
+	// client the only token it has.
 	RotateRefreshToken(
 		ctx context.Context,
 		refreshTokenHash []byte,

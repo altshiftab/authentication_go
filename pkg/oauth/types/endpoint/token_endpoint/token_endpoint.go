@@ -259,7 +259,9 @@ func (e *Endpoint) refresh(ctx context.Context, server *issuer, form url.Values)
 				scopes = requested
 			}
 
-			if err := e.checkGrant(ctx, server, grant); err != nil {
+			// The store has refused an inactive account already; asking it here would take a second
+			// connection while the rotation holds one.
+			if err := checkResource(server, grant); err != nil {
 				return err
 			}
 
@@ -282,6 +284,8 @@ func (e *Endpoint) refresh(ctx context.Context, server *issuer, form url.Values)
 		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The refresh token was spent already.")
 	case errors.Is(err, oauth.ErrNotFound):
 		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, "The refresh token is invalid or has expired.")
+	case errors.Is(err, oauth.ErrAccountInactive):
+		return e.refuse(ctx, http.StatusBadRequest, errorInvalidGrant, accountInactiveDescription)
 	case err != nil:
 		return e.answer(ctx, err)
 	case grant == nil || issued == nil:
@@ -312,11 +316,14 @@ func (e *Endpoint) answer(ctx context.Context, err error) (*muxResponse.Response
 	return nil, &response_error.ResponseError{ServerError: err}
 }
 
+// accountInactiveDescription is the refusal of a grant whose account is locked or gone.
+const accountInactiveDescription = "The account is locked or no longer exists."
+
 // checkGrant refuses a grant whose resource is no longer served or whose account is no longer
 // active, as either may have stopped being since the grant was given.
 func (e *Endpoint) checkGrant(ctx context.Context, server *issuer, grant *oauth.Grant) error {
-	if oauth.FindResource(server.resources, grant.Resource) == nil {
-		return &refusal{code: "invalid_target", description: "The resource is no longer one this server issues tokens for."}
+	if err := checkResource(server, grant); err != nil {
+		return err
 	}
 
 	active, err := server.store.AccountActive(ctx, grant.AccountId)
@@ -324,9 +331,17 @@ func (e *Endpoint) checkGrant(ctx context.Context, server *issuer, grant *oauth.
 		return altshiftErrors.New(fmt.Errorf("store account active: %w", err))
 	}
 	if !active {
-		return &refusal{code: errorInvalidGrant, description: "The account is locked or no longer exists."}
+		return &refusal{code: errorInvalidGrant, description: accountInactiveDescription}
 	}
 
+	return nil
+}
+
+// checkResource refuses a grant whose resource is no longer served.
+func checkResource(server *issuer, grant *oauth.Grant) error {
+	if oauth.FindResource(server.resources, grant.Resource) == nil {
+		return &refusal{code: "invalid_target", description: "The resource is no longer one this server issues tokens for."}
+	}
 	return nil
 }
 

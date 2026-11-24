@@ -12,5 +12,7 @@ import (
 func TestStoreContract(t *testing.T) {
 	t.Parallel()
 
-	StoreContract(t, memory_store.New("an-account"), "an-account")
+	store := memory_store.New("an-account", "a-locked-account")
+	store.LockAccount("a-locked-account")
+	StoreContract(t, store, "an-account", "a-locked-account")
 }

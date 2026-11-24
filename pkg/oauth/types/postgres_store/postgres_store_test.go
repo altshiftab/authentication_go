@@ -1,16 +1,48 @@
 package postgres_store
 
 import (
+	"os"
 	"testing"
 	"time"
 
+	apiKeyTesting "github.com/altshiftab/authentication_go/pkg/api_key/testing"
 	"github.com/altshiftab/authentication_go/pkg/oauth"
+	oauthTesting "github.com/altshiftab/authentication_go/pkg/oauth/testing"
 	altshiftSqlTesting "github.com/altshiftab/utils_go/pkg/database/sql/testing"
 )
 
-// What is here is what the store refuses before it asks the database anything. The queries are run
-// against Postgres by a service holding the schema -- vvvp_login's backend tests run oauth/testing's
-// StoreContract on its own -- as nothing here has a database to run them on.
+func TestMain(m *testing.M) {
+	os.Exit(apiKeyTesting.Main(m, "postgres_store"))
+}
+
+// The store against Postgres, where TEST_DATABASE_URL names a server, through what the endpoints
+// rely on.
+//
+//nolint:tparallel // The contract's group is serial so that it has run when StoreContract returns; its cases are parallel.
+func TestStore_Contract(t *testing.T) {
+	t.Parallel()
+
+	db := apiKeyTesting.Db(t)
+	active, err := apiKeyTesting.InsertAccount(t.Context(), db, "active@example.com", "")
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	locked, err := apiKeyTesting.InsertAccount(t.Context(), db, "locked@example.com", "")
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	if _, err := db.ExecContext(t.Context(), `UPDATE account SET locked = true WHERE id = $1;`, locked.Id); err != nil {
+		t.Fatalf("lock account: %v", err)
+	}
+
+	store, err := New(db)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	oauthTesting.StoreContract(t, store, active.Id, locked.Id)
+}
+
+// What the store refuses before it asks the database anything.
 func TestStore_Refusals(t *testing.T) {
 	t.Parallel()
 

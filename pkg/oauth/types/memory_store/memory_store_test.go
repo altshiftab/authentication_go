@@ -11,7 +11,9 @@ const accountId = "an-account"
 func TestStore_Contract(t *testing.T) {
 	t.Parallel()
 
-	oauthTesting.StoreContract(t, New(accountId), accountId)
+	store := New(accountId, "a-locked-account")
+	store.LockAccount("a-locked-account")
+	oauthTesting.StoreContract(t, store, accountId, "a-locked-account")
 }
 
 func TestStore_AccountActive(t *testing.T) {

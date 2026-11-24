@@ -23,9 +23,9 @@ const (
 
 // StoreContract runs the store through what the authorization server relies on: requests and
 // codes are had once, a refresh token is spent once, and a spent one coming back revokes its grant.
-// accountId is an account the store knows and that is active. The cases run in parallel with one
-// another, as the endpoints use the store.
-func StoreContract(t *testing.T, store oauth.Store, accountId string) {
+// accountId is an account the store knows and that is active, and lockedAccountId one it knows and
+// that is locked. The cases run in parallel with one another, as the endpoints use the store.
+func StoreContract(t *testing.T, store oauth.Store, accountId string, lockedAccountId string) {
 	t.Helper()
 
 	now := time.Now().Truncate(time.Second)
@@ -229,11 +229,40 @@ func StoreContract(t *testing.T, store oauth.Store, accountId string) {
 			}
 		})
 
-		t.Run("the account is active", func(t *testing.T) {
+		t.Run("a locked account's refresh token renews nothing and is left unspent", func(t *testing.T) {
+			t.Parallel()
+
+			token := oauth.HashSecret("rl-1")
+			if _, err := store.InsertGrant(t.Context(), &oauth.Grant{
+				AccountId: lockedAccountId, ClientId: contractClientId, Resource: contractResource, Scope: contractScope, CreatedAt: now,
+			}, token, now.Add(time.Hour)); err != nil {
+				t.Fatalf("insert grant: %v", err)
+			}
+
+			checked := false
+			check := func(*oauth.Grant) error {
+				checked = true
+				return nil
+			}
+			// Twice: a token the first spent would be reused the second time.
+			for range 2 {
+				if _, err := store.RotateRefreshToken(t.Context(), token, oauth.HashSecret("rl-2"), now.Add(time.Hour), now, check); !errors.Is(err, oauth.ErrAccountInactive) {
+					t.Fatalf("rotate: %v, want ErrAccountInactive", err)
+				}
+			}
+			if checked {
+				t.Error("the check was asked of a locked account's grant")
+			}
+		})
+
+		t.Run("the account is active, and the locked one is not", func(t *testing.T) {
 			t.Parallel()
 
 			if active, err := store.AccountActive(t.Context(), accountId); err != nil || !active {
 				t.Errorf("account active: %t, %v", active, err)
+			}
+			if active, err := store.AccountActive(t.Context(), lockedAccountId); err != nil || active {
+				t.Errorf("locked account active: %t, %v", active, err)
 			}
 		})
 	})
