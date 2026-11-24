@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -1475,27 +1476,34 @@ func TestManager_MintToken_AuthenticationMethod(t *testing.T) {
 
 // clientHeaders are what the intil load balancer sets on every request, replacing whatever the
 // client sent, and what a client reaching a service by any other way can send of its own accord.
-var clientHeaders = map[string]string{
-	"X-Client-Ip-Address":           "203.0.113.5",
-	"X-Client-Geo-City-Name":        "Stockholm",
-	"X-Client-Geo-Country-Iso-Code": "SE",
+var clientHeaders = map[string][]string{
+	"X-Client-Ip-Address":           {"203.0.113.5"},
+	"X-Client-Geo-City-Name":        {"Stockholm"},
+	"X-Client-Geo-Country-Iso-Code": {"SE"},
 }
 
-func withHeaders(headers ...map[string]string) map[string]string {
-	merged := make(map[string]string)
+// firebaseEdges is the range of Firebase Hosting's edges, as Google's front end records them as the
+// last X-Forwarded-For entry of a request Firebase forwarded.
+var firebaseEdges = []netip.Prefix{netip.MustParsePrefix("66.249.93.0/24")}
+
+// withHeaders merges header lines, a later map's lines for a name replacing an earlier one's.
+func withHeaders(headers ...map[string][]string) map[string][]string {
+	merged := make(map[string][]string)
 	for _, header := range headers {
 		maps.Copy(merged, header)
 	}
 	return merged
 }
 
-func newClientRequest(t *testing.T, remoteAddr string, headers map[string]string) *http.Request {
+func newClientRequest(t *testing.T, remoteAddr string, headers map[string][]string) *http.Request {
 	t.Helper()
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://example.com/", nil)
 	request.RemoteAddr = remoteAddr
-	for name, value := range headers {
-		request.Header.Set(name, value)
+	for name, lines := range headers {
+		for _, line := range lines {
+			request.Header.Add(name, line)
+		}
 	}
 	return request
 }
@@ -1510,21 +1518,22 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 		name               string
 		trustForwardedFor  bool
 		trustClientHeaders bool
+		trustedProxies     []netip.Prefix
 		remoteAddr         string
-		headers            map[string]string
-		want               authenticationPkg.ClientMetadata
+		headers            map[string][]string
+		want               *authenticationPkg.ClientMetadata
 	}{
 		{
-			// signals_login: the load balancer's address and location, as before. Its X-Forwarded-For
-			// keeps what the client sent at the front.
-			name:               "trusted client headers",
+			// signals_login: the load balancer's address and location, as they were sent. Its
+			// X-Forwarded-For keeps what the client sent at the front.
+			name:               "signals_login, trusted client headers",
 			trustClientHeaders: true,
 			remoteAddr:         "10.0.0.1:443",
-			headers: withHeaders(clientHeaders, map[string]string{
-				"X-Forwarded-For": "198.51.100.66, 203.0.113.5, 10.0.0.1",
-				"User-Agent":      "test-agent",
+			headers: withHeaders(clientHeaders, map[string][]string{
+				"X-Forwarded-For": {"198.51.100.66, 203.0.113.5, 10.0.0.1"},
+				"User-Agent":      {"test-agent"},
 			}),
-			want: authenticationPkg.ClientMetadata{
+			want: &authenticationPkg.ClientMetadata{
 				IpAddress:        "203.0.113.5",
 				IpAddressCountry: "Sweden",
 				IpAddressCity:    "Stockholm",
@@ -1532,48 +1541,100 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 			},
 		},
 		{
+			name:               "signals_login, an address recorded as it was sent",
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers:            withHeaders(clientHeaders, map[string][]string{"X-Client-Ip-Address": {"::ffff:203.0.113.5"}}),
+			want:               &authenticationPkg.ClientMetadata{IpAddress: "::ffff:203.0.113.5", IpAddressCountry: "Sweden", IpAddressCity: "Stockholm"},
+		},
+		{
 			name:               "trusted client headers ahead of a trusted X-Forwarded-For",
 			trustForwardedFor:  true,
 			trustClientHeaders: true,
 			remoteAddr:         "10.0.0.1:443",
-			headers:            withHeaders(clientHeaders, map[string]string{"X-Forwarded-For": "198.51.100.9, 10.0.0.1"}),
-			want:               authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCountry: "Sweden", IpAddressCity: "Stockholm"},
+			headers:            withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"198.51.100.9, 10.0.0.1"}}),
+			want:               &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCountry: "Sweden", IpAddressCity: "Stockholm"},
 		},
 		{
-			name:               "trusted client headers without the client's address",
+			name:               "trusted client headers without the client's address, and no location",
 			trustClientHeaders: true,
 			remoteAddr:         "10.0.0.1:443",
-			headers:            map[string]string{"X-Forwarded-For": "198.51.100.66, 10.0.0.1"},
-			want:               authenticationPkg.ClientMetadata{IpAddress: "10.0.0.1"},
-		},
-		{
-			// vvvp_login: Google's front end rewrites X-Forwarded-For, and sets no X-Client-*, so
-			// those are the client's.
-			name:              "trusted X-Forwarded-For",
-			trustForwardedFor: true,
-			remoteAddr:        "169.254.1.1:443",
-			headers: withHeaders(clientHeaders, map[string]string{
-				"X-Forwarded-For": " 198.51.100.9 , 169.254.1.1",
-				"User-Agent":      "test-agent",
+			headers: withHeaders(clientHeaders, map[string][]string{
+				"X-Client-Ip-Address": nil,
+				"X-Forwarded-For":     {"198.51.100.66, 10.0.0.1"},
 			}),
-			want: authenticationPkg.ClientMetadata{IpAddress: "198.51.100.9", UserAgent: "test-agent"},
+			want: &authenticationPkg.ClientMetadata{IpAddress: "10.0.0.1"},
 		},
 		{
-			name:              "trusted X-Forwarded-For that names no address",
+			name:               "the client's address on two lines, and no location",
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers:            withHeaders(clientHeaders, map[string][]string{"X-Client-Ip-Address": {"203.0.113.5", "198.51.100.66"}}),
+			want:               &authenticationPkg.ClientMetadata{IpAddress: "10.0.0.1"},
+		},
+		{
+			name:               "the city on two lines",
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers:            withHeaders(clientHeaders, map[string][]string{"X-Client-Geo-City-Name": {"Stockholm", "Oslo"}}),
+			want:               &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCountry: "Sweden"},
+		},
+		{
+			name:               "the country on two lines",
+			trustClientHeaders: true,
+			remoteAddr:         "10.0.0.1:443",
+			headers:            withHeaders(clientHeaders, map[string][]string{"X-Client-Geo-Country-Iso-Code": {"SE", "NO"}}),
+			want:               &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.5", IpAddressCity: "Stockholm"},
+		},
+		{
+			// vvvp_login: Firebase Hosting replaces X-Forwarded-For with the client's address, and
+			// Google's front end appends the edge's; nothing sets X-Client-*, so those are the
+			// client's, and not trusted.
+			name:              "vvvp_login through Firebase Hosting, forged client headers",
 			trustForwardedFor: true,
+			trustedProxies:    firebaseEdges,
 			remoteAddr:        "169.254.1.1:443",
-			headers:           withHeaders(clientHeaders, map[string]string{"X-Forwarded-For": "unknown, 198.51.100.9"}),
-			want:              authenticationPkg.ClientMetadata{IpAddress: "169.254.1.1"},
+			headers: withHeaders(clientHeaders, map[string][]string{
+				"X-Forwarded-For": {"198.51.100.7,66.249.93.77"},
+				"User-Agent":      {"test-agent"},
+			}),
+			want: &authenticationPkg.ClientMetadata{IpAddress: "198.51.100.7", UserAgent: "test-agent"},
+		},
+		{
+			// The run.app address reached directly, the caller naming a client of its own: Google's
+			// front end appends the caller's address.
+			name:              "vvvp_login at run.app directly, a forged X-Forwarded-For",
+			trustForwardedFor: true,
+			trustedProxies:    firebaseEdges,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"192.0.2.21,203.0.113.9"}}),
+			want:              &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.9"},
+		},
+		{
+			name:              "vvvp_login at run.app directly, a forged chain through an edge",
+			trustForwardedFor: true,
+			trustedProxies:    firebaseEdges,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"198.51.100.7,66.249.93.77,203.0.113.9"}}),
+			want:              &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.9"},
+		},
+		{
+			name:              "trusted X-Forwarded-For whose last entry names no address",
+			trustForwardedFor: true,
+			trustedProxies:    firebaseEdges,
+			remoteAddr:        "169.254.1.1:443",
+			headers:           withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"198.51.100.9, unknown"}}),
+			want:              &authenticationPkg.ClientMetadata{IpAddress: "169.254.1.1"},
 		},
 		{
 			name:       "nothing trusted",
 			remoteAddr: "203.0.113.7:51234",
-			headers:    withHeaders(clientHeaders, map[string]string{"X-Forwarded-For": "198.51.100.9"}),
-			want:       authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
+			headers:    withHeaders(clientHeaders, map[string][]string{"X-Forwarded-For": {"198.51.100.9"}}),
+			want:       &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7"},
 		},
 		{
 			name: "nothing trusted and no peer",
-			want: authenticationPkg.ClientMetadata{},
+			want: &authenticationPkg.ClientMetadata{},
 		},
 	}
 
@@ -1593,6 +1654,7 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 			})
 			mux.TrustForwardedFor = testCase.trustForwardedFor
 			mux.TrustClientHeaders = testCase.trustClientHeaders
+			mux.TrustedProxies = testCase.trustedProxies
 
 			recorder := httptest.NewRecorder()
 			mux.ServeHTTP(recorder, newClientRequest(t, testCase.remoteAddr, testCase.headers))
@@ -1603,8 +1665,8 @@ func TestClientMetadataFromContext_ThroughMux(t *testing.T) {
 			if got == nil {
 				t.Fatal("no client metadata")
 			}
-			if *got != testCase.want {
-				t.Errorf("got %+v, want %+v", *got, testCase.want)
+			if *got != *testCase.want {
+				t.Errorf("got %+v, want %+v", *got, *testCase.want)
 			}
 		})
 	}
@@ -1630,9 +1692,9 @@ func TestClientMetadataFromContext(t *testing.T) {
 		},
 		{
 			name: "an http context no mux resolved",
-			request: newClientRequest(t, "203.0.113.7:51234", withHeaders(clientHeaders, map[string]string{
-				"X-Forwarded-For": "198.51.100.9",
-				"User-Agent":      "test-agent",
+			request: newClientRequest(t, "203.0.113.7:51234", withHeaders(clientHeaders, map[string][]string{
+				"X-Forwarded-For": {"198.51.100.9"},
+				"User-Agent":      {"test-agent"},
 			})),
 			want: &authenticationPkg.ClientMetadata{IpAddress: "203.0.113.7", UserAgent: "test-agent"},
 		},

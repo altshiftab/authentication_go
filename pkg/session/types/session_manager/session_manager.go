@@ -28,6 +28,7 @@ import (
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
 	muxPkg "github.com/altshiftab/utils_go/pkg/http/mux"
+	"github.com/altshiftab/utils_go/pkg/http/mux/types/forwarded_headers"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response"
 	"github.com/altshiftab/utils_go/pkg/http/mux/types/response_error"
 	altshiftHttpTypes "github.com/altshiftab/utils_go/pkg/http/types"
@@ -70,14 +71,19 @@ type Manager struct {
 // ClientMetadataFromContext derives the client information persisted with an authentication from
 // the HTTP context the mux carries on ctx.
 //
-// The address is the one the mux resolved as the request arrived, from the headers it was told to
-// trust -- X-Client-Ip-Address behind a load balancer that sets it, the first X-Forwarded-For entry
-// behind a proxy that rewrites it, such as Google's front end in front of Cloud Run and Firebase
-// Hosting -- and otherwise the connection's peer. No header is read for it here: what the request
-// says of its own client is the client's to write unless something in front replaced it, and the
-// mux is where a service says what is in front of it (TRUST_CLIENT_HEADERS, TRUST_FORWARDED_FOR).
-// The city and the country come from the load balancer's X-Client-Geo-* headers only where the mux
-// trusts the client headers, and are left empty otherwise.
+// The address is the one the mux resolved as the request arrived, from the headers the service's
+// options tell it to trust -- X-Client-Ip-Address as a load balancer that sets it sent it
+// (WithTrustClientHeaders), or X-Forwarded-For read from the right, past the trusted proxies, where
+// the proxy directly in front appends to it, as Google's front end in front of Cloud Run does
+// (WithTrustForwardedFor, WithTrustedProxies) -- and otherwise the connection's peer. No header is
+// read for it here: what the request says of its own client is the client's to write unless
+// something in front replaced it, and the service's options are where it says what is in front of
+// it.
+//
+// The city and the country come from the load balancer's X-Client-Geo-City-Name and
+// X-Client-Geo-Country-Iso-Code only where the address came from X-Client-Ip-Address, which the HTTP
+// context says (TrustClientHeaders), and each only where it is on one line; they are left empty
+// otherwise.
 //
 // An HTTP context that no mux resolved has nothing trusted: the peer's address and no location. It
 // returns nil when there is no HTTP context, or no request in it, which InsertAuthentication stores
@@ -109,9 +115,9 @@ func ClientMetadataFromContext(ctx context.Context) *authenticationPkg.ClientMet
 	}
 
 	if header := request.Header; header != nil && httpContext.TrustClientHeaders {
-		metadata.IpAddressCity = header.Get("X-Client-Geo-City-Name")
+		metadata.IpAddressCity = forwarded_headers.ClientHeader(header, "X-Client-Geo-City-Name")
 
-		if countryIsoCode := header.Get("X-Client-Geo-Country-Iso-Code"); countryIsoCode != "" {
+		if countryIsoCode := forwarded_headers.ClientHeader(header, "X-Client-Geo-Country-Iso-Code"); countryIsoCode != "" {
 			metadata.IpAddressCountry = iso3166.CountryName(countryIsoCode)
 		}
 	}

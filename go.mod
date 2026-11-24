@@ -3,7 +3,7 @@ module github.com/altshiftab/authentication_go
 go 1.27
 
 require (
-	github.com/altshiftab/utils_go v1.125.4-0.20261124090753-15664b4307ee
+	github.com/altshiftab/utils_go v1.125.4-0.20261124100933-b876e72cb092
 	github.com/jackc/pgx/v5 v5.13.0
 )
 
