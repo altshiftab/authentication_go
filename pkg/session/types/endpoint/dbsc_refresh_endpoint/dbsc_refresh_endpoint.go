@@ -19,6 +19,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/endpoint/dbsc_refresh_endpoint/dbsc_refresh_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_instructions"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_manager"
+	altshiftContext "github.com/altshiftab/utils_go/pkg/context"
 	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
@@ -320,9 +321,8 @@ func (e *Endpoint) Initialize(
 		// falls back to being challenged, which is where it started.
 		if challengeHeader, err := issueChallenge(); err != nil {
 			slog.WarnContext(
-				ctx,
+				altshiftContext.WithError(ctx, err),
 				"An error occurred when issuing the next DBSC challenge. The next refresh will need one.",
-				slog.Any("error", err),
 			)
 		} else {
 			response.Headers = append(response.Headers, challengeHeader)

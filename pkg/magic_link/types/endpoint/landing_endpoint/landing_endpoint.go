@@ -12,6 +12,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/log_masking"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/landing_endpoint/landing_endpoint_config"
 	"github.com/altshiftab/authentication_go/pkg/magic_link/types/endpoint/validate_endpoint"
+	altshiftContext "github.com/altshiftab/utils_go/pkg/context"
 	altshiftCryptoInterfaces "github.com/altshiftab/utils_go/pkg/crypto/interfaces"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/nil_error"
@@ -113,9 +114,8 @@ func (e *Endpoint) Initialize(verifier altshiftCryptoInterfaces.NamedVerifier) e
 			spent, err := e.SpentChecker(ctx, verifiedToken.NonceHash[:])
 			if err != nil {
 				slog.WarnContext(
-					ctx,
+					altshiftContext.WithError(ctx, altshiftErrors.New(fmt.Errorf("spent checker: %w", err))),
 					"An error occurred when checking whether a magic link was spent.",
-					slog.Any("error", altshiftErrors.New(fmt.Errorf("spent checker: %w", err))),
 				)
 			} else if spent {
 				return e.makePageResponse(e.UnusablePageBuilder, http.StatusGone, "", acceptLanguage)

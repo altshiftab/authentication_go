@@ -21,6 +21,7 @@ import (
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_cookie/session_cookie_config"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_instructions"
 	"github.com/altshiftab/authentication_go/pkg/session/types/session_token"
+	altshiftContext "github.com/altshiftab/utils_go/pkg/context"
 	altshiftDatabase "github.com/altshiftab/utils_go/pkg/database"
 	altshiftErrors "github.com/altshiftab/utils_go/pkg/errors"
 	"github.com/altshiftab/utils_go/pkg/errors/types/empty_error"
@@ -326,9 +327,8 @@ func (e *Endpoint) Initialize(
 		if claims := sessionToken.Claims; claims != nil && claims.ExpiresAt != nil {
 			if err := e.updateAuthenticationWithSessionExpiresAt(dbCtx, authenticationId, claims.ExpiresAt.Time, db); err != nil {
 				slog.WarnContext(
-					ctx,
+					altshiftContext.WithError(ctx, err),
 					"An error occurred when recording the bound session's token expiry. Its first refresh will not be held to the idle bound.",
-					slog.Any("error", err),
 				)
 			}
 		}
