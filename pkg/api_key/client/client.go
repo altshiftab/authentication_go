@@ -157,7 +157,7 @@ func Mint(ctx context.Context, httpClient *http.Client, service *url.URL, assert
 		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("io read all: %w", err))
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, altshiftErrors.NewWithTrace(fmt.Errorf("%w: %d %s", ErrRefused, response.StatusCode, bytes.TrimSpace(body)))
+		return nil, altshiftErrors.NewWithTrace(&RefusedError{Status: response.StatusCode, Body: string(bytes.TrimSpace(body))})
 	}
 
 	var answer struct {

@@ -149,14 +149,19 @@ func TestMint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// refusedStatus is the status a refusal carries, which tells a key refused from a service failing;
+	// 0 where the refusal is of no status.
 	testCases := []struct {
-		name    string
-		status  int
-		body    string
-		refused bool
+		name          string
+		status        int
+		body          string
+		refused       bool
+		refusedStatus int
 	}{
 		{name: "a token", status: http.StatusOK, body: `{"access_token":"a.b.c","token_type":"Bearer","expires_in":900}`},
-		{name: "a refusal", status: http.StatusUnauthorized, body: `{"detail":"The assertion is not valid."}`, refused: true},
+		{name: "a key it does not take", status: http.StatusUnauthorized, body: `{"detail":"The assertion is not valid."}`, refused: true, refusedStatus: http.StatusUnauthorized},
+		{name: "a key revoked", status: http.StatusForbidden, body: `{"detail":"The key has been revoked."}`, refused: true, refusedStatus: http.StatusForbidden},
+		{name: "a service failing", status: http.StatusBadGateway, body: "", refused: true, refusedStatus: http.StatusBadGateway},
 		{name: "an answer of no token", status: http.StatusOK, body: `{"token_type":"Bearer"}`, refused: true},
 	}
 	for _, testCase := range testCases {
@@ -167,6 +172,13 @@ func TestMint(t *testing.T) {
 			if testCase.refused {
 				if !errors.Is(err, ErrRefused) {
 					t.Errorf("%+v, %v", token, err)
+				}
+				status := 0
+				if refused, ok := errors.AsType[*RefusedError](err); ok {
+					status = refused.Status
+				}
+				if status != testCase.refusedStatus {
+					t.Errorf("refused with %d, want %d: %v", status, testCase.refusedStatus, err)
 				}
 				return
 			}
